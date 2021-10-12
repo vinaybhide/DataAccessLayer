@@ -53,7 +53,7 @@ namespace DataAccessLayer
         //    //ReadData(sqlite_conn);
         //}
 
-        static public SQLiteConnection CreateConnection()
+        public SQLiteConnection CreateConnection()
         {
             SQLiteConnection sqlite_conn = null;
             string sCurrentDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -81,7 +81,7 @@ namespace DataAccessLayer
             return sqlite_conn;
         }
 
-        static public void ReadData(SQLiteConnection conn)
+        public void ReadData(SQLiteConnection conn)
         {
             SQLiteDataReader sqlite_datareader;
             SQLiteCommand sqlite_cmd;
@@ -104,7 +104,7 @@ namespace DataAccessLayer
         /// Method to fetch LATEST NAV for all MF's for all MF companies and all MF types
         /// </summary>
         /// <returns>true if data is fetched & processed successfully else false</returns>
-        static public bool getAllMFNAVToday()
+        public bool getAllMFNAVToday()
         {
             string webservice_url;
             Uri url;
@@ -160,7 +160,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="fetchDate"></param>
         /// <returns></returns>
-        static public bool getAllMFNAVForDate(string fetchDate)
+        public bool getAllMFNAVForDate(string fetchDate)
         {
             string webservice_url;
             Uri url;
@@ -220,7 +220,7 @@ namespace DataAccessLayer
         /// <param name="fromdt">From date string in yyyy-MM-dd format</param>
         /// <param name="todt">optional TO date string in yyyy-MM-dd format</param>
         /// <returns>true if ALL records processed successfully else false even if partial success</returns>
-        static public bool getHistoryNAVForMFCode(string mfCode, string fromdt, string todt = null)
+        public bool getHistoryNAVForMFCode(string mfCode, string fromdt, string todt = null)
         {
             string webservice_url;
             Uri url;
@@ -284,7 +284,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="sourceFile">A string builder object containing all records read from respective URL</param>
         /// <returns>Number of recrods processed</returns>
-        static public long insertRecordInDB(StringBuilder sourceFile)
+        public long insertRecordInDB(StringBuilder sourceFile)
         {
             string[] fields;
             StringBuilder record = new StringBuilder(string.Empty);
@@ -502,7 +502,7 @@ namespace DataAccessLayer
             return recCounter;
         }
 
-        static public long insertSchemeType(string schemeType, SQLiteCommand sqlite_cmd)
+        public long insertSchemeType(string schemeType, SQLiteCommand sqlite_cmd)
         {
             long schemetypeid = -1;
             //SQLiteConnection sqlite_conn = null;
@@ -555,7 +555,7 @@ namespace DataAccessLayer
             return schemetypeid;
         }
 
-        static public int insertFundHouse(string fundHouse, SQLiteCommand sqlite_cmd)
+        public int insertFundHouse(string fundHouse, SQLiteCommand sqlite_cmd)
         {
             int fundhousecode = -1;
             //SQLiteConnection sqlite_conn = null;
@@ -604,7 +604,7 @@ namespace DataAccessLayer
             return fundhousecode;
         }
 
-        static public int insertScheme(int fundHouseCode, long schemeTypeId, int schemeCode, string schemeName, string dateFrom, string dateTo, SQLiteCommand sqlite_cmd)
+        public int insertScheme(int fundHouseCode, long schemeTypeId, int schemeCode, string schemeName, string dateFrom, string dateTo, SQLiteCommand sqlite_cmd)
         {
             int numOfRowsInserted = 0;
             //SQLiteConnection sqlite_conn = null;
@@ -657,7 +657,7 @@ namespace DataAccessLayer
 
         //Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date
         //insertTransaction(fundhousecode, schemetypeid, schemecode, fields[1], fields[2], fields[3], string.Format("{0:0.0000}", nav), System.Convert.ToDateTime(fields[5]).ToString("yyyy-MM-dd"));
-        static public int insertTransaction(int schemeCode, string ISINDivPayout_ISINGrowth, string ISINDivReinvestment,
+        public int insertTransaction(int schemeCode, string ISINDivPayout_ISINGrowth, string ISINDivReinvestment,
                                            string schemeName, string netAssetValue, string navDate, SQLiteCommand sqlite_cmd)
         {
             int numOfRowsInserted = 0;
@@ -712,7 +712,7 @@ namespace DataAccessLayer
 
         #region update_methods
 
-        static public int UpdateSchemeFromToDate(SQLiteCommand sqlite_cmd)
+        public int UpdateSchemeFromToDate(SQLiteCommand sqlite_cmd)
         {
             int numOfRowsUpdated = 0;
             //SQLiteConnection sqlite_conn = null;
@@ -755,7 +755,7 @@ namespace DataAccessLayer
             return numOfRowsUpdated;
         }
 
-        static public int updateSchemeFromDate(int schemeCode, string schemeName, string dateFrom)
+        public int updateSchemeFromDate(int schemeCode, string schemeName, string dateFrom)
         {
             int numOfRowsUpdated = 0;
             SQLiteConnection sqlite_conn = null;
@@ -797,7 +797,7 @@ namespace DataAccessLayer
             return numOfRowsUpdated;
         }
 
-        static public int updateSchemeToDate(int schemeCode, string schemeName, string dateTo)
+        public int updateSchemeToDate(int schemeCode, string schemeName, string dateTo)
         {
             int numOfRowsUpdated = 0;
             SQLiteConnection sqlite_conn = null;
@@ -846,7 +846,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="fundHouse">name of the fund house</param>
         /// <returns>matchng fund house code</returns>
-        static public int getFundHouseCode(string fundHouse, SQLiteCommand sqlite_cmd = null)
+        public int getFundHouseCode(string fundHouse, SQLiteCommand sqlite_cmd = null)
         {
             int fundhousecode = -1;
             SQLiteConnection sqlite_conn = null;
@@ -914,7 +914,7 @@ namespace DataAccessLayer
         /// Columns - FUNDHOUSECODE, NAME
         /// </summary>
         /// <returns></returns>
-        static public DataTable getFundHouseTable()
+        public DataTable getFundHouseTable()
         {
             DataTable returnTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -978,7 +978,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="schemeType"></param>
         /// <returns>ID of matching scheme type</returns>
-        static public long getSchemeTypeId(string schemeType, SQLiteCommand sqlite_cmd)
+        public long getSchemeTypeId(string schemeType, SQLiteCommand sqlite_cmd)
         {
             long schemetypeid = -1;
             //SQLiteConnection sqlite_conn = null;
@@ -1037,7 +1037,7 @@ namespace DataAccessLayer
         /// columns - ID, TYPE
         /// </summary>
         /// <returns></returns>
-        static public DataTable getSchemeTypeTable()
+        public DataTable getSchemeTypeTable()
         {
             DataTable returnTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -1102,7 +1102,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="schemeCode"></param>
         /// <returns>matching scheme name if found else empty string </returns>
-        static public string isSchemeExists(int schemeCode, SQLiteCommand sqlite_cmd)
+        public string isSchemeExists(int schemeCode, SQLiteCommand sqlite_cmd)
         {
             string schemeName = string.Empty;
             //SQLiteConnection sqlite_conn = null;
@@ -1165,7 +1165,7 @@ namespace DataAccessLayer
         /// <param name="fundhousecode"></param>
         /// <param name="schemetypeid"></param>
         /// <returns>Data Table matching criterion provided in fundhousecode and schemetypeid</returns>
-        static public DataTable getSchemesTable(int fundhousecode = -1, int schemetypeid = -1)
+        public DataTable getSchemesTable(int fundhousecode = -1, int schemetypeid = -1)
         {
             DataTable returnTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -1243,7 +1243,7 @@ namespace DataAccessLayer
             return returnTable;
         }
 
-        static public int getMaxFundHouseID(string fundHouse, SQLiteCommand sqlite_cmd)
+        public int getMaxFundHouseID(string fundHouse, SQLiteCommand sqlite_cmd)
         {
             int fundhousecode = -1;
             //SQLiteConnection sqlite_conn = null;
@@ -1300,7 +1300,7 @@ namespace DataAccessLayer
             return fundhousecode;
         }
 
-        static public DataTable getNAVRecordsTable(int schemecode, string fromDate = null, string toDate = null)
+        public DataTable getNAVRecordsTable(int schemecode, string fromDate = null, string toDate = null)
         {
             DataTable returnTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -1388,7 +1388,7 @@ namespace DataAccessLayer
             return returnTable;
         }
 
-        static public DataTable getRSIDataTableFromDailyNAV(int schemecode = -1, string fromDate = null, string toDate = null, string period = "20")
+        public DataTable getRSIDataTableFromDailyNAV(int schemecode = -1, string fromDate = null, string toDate = null, string period = "20")
         {
             DataTable dailyTable = null;
             DataTable rsiDataTable = null;
@@ -1491,7 +1491,7 @@ namespace DataAccessLayer
         #endregion
 
         #region portfolio
-        static public long createnewMFPortfolio(string userid, string portfolioname)
+        public long createnewMFPortfolio(string userid, string portfolioname)
         {
             long portfolio_id = -1;
             SQLiteConnection sqlite_conn = null;
@@ -1546,7 +1546,7 @@ namespace DataAccessLayer
             return portfolio_id;
         }
 
-        static public DataTable getPortfolioTable(string userId, SQLiteCommand sqlite_cmd = null)
+        public DataTable getPortfolioTable(string userId, SQLiteCommand sqlite_cmd = null)
         {
             DataTable portfolioTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -1619,7 +1619,7 @@ namespace DataAccessLayer
 
             return portfolioTable;
         }
-        static public long getPortfolioId(string portfolioName, string userId, SQLiteCommand sqlite_cmd = null)
+        public long getPortfolioId(string portfolioName, string userId, SQLiteCommand sqlite_cmd = null)
         {
             long portfolioId = -1;
             SQLiteConnection sqlite_conn = null;
@@ -1682,7 +1682,7 @@ namespace DataAccessLayer
             return portfolioId;
         }
 
-        static public bool addNewTransaction(string userId, string portfolioName, string schemeCode, string purchaseDate, string purchaseNAV,
+        public bool addNewTransaction(string userId, string portfolioName, string schemeCode, string purchaseDate, string purchaseNAV,
                                             string purchaseUnits, string valueAtCost, long portfolioId, SQLiteCommand sqlite_cmd = null)
         {
             bool breturn = false;
@@ -1762,7 +1762,7 @@ namespace DataAccessLayer
             return breturn;
         }
 
-        static public int getNextSIPDurationCounter(string frequency)
+        public int getNextSIPDurationCounter(string frequency)
         {
             int returnCounter = 0;
 
@@ -1782,7 +1782,7 @@ namespace DataAccessLayer
             return returnCounter;
         }
 
-        static public bool addNewSIP(string userId, string portfolioName, long portfolioRowId, string schemeCode, string startDate, string endDate, string monthlyContribution,
+        public bool addNewSIP(string userId, string portfolioName, long portfolioRowId, string schemeCode, string startDate, string endDate, string monthlyContribution,
                                     string sipFrequency = null, string monthday = null)
         {
             bool breturn = false;
@@ -1880,7 +1880,7 @@ namespace DataAccessLayer
             return breturn;
         }
 
-        static public bool deletePortfolioRow(string userId, string portfolioName, string portfolioRowId, string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
+        public bool deletePortfolioRow(string userId, string portfolioName, string portfolioRowId, string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
         {
             bool breturn = false;
             SQLiteConnection sqlite_conn = null;
@@ -1947,7 +1947,7 @@ namespace DataAccessLayer
             return breturn;
         }
 
-        static public bool updateTransaction(string userId, string portfolioName, string portfolioRowId, string oldschemeCode, string oldpurchaseDate, string oldpurchaseNAV, string oldpurchaseUnits, string oldvalueAtCost,
+        public bool updateTransaction(string userId, string portfolioName, string portfolioRowId, string oldschemeCode, string oldpurchaseDate, string oldpurchaseNAV, string oldpurchaseUnits, string oldvalueAtCost,
                                             string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
         {
             bool breturn = false;
@@ -2024,7 +2024,7 @@ namespace DataAccessLayer
         }
 
 
-        static public bool deletePortfolio(string userId, string portfolioName)
+        public bool deletePortfolio(string userId, string portfolioName)
         {
             bool breturn = false;
             SQLiteConnection sqlite_conn = null;
@@ -2088,7 +2088,7 @@ namespace DataAccessLayer
             return breturn;
         }
 
-        static public DataTable openMFPortfolio(string userId, string portfolioFileName, string portfolioRowId, bool bCurrent = true, bool bValuation = false)
+        public DataTable openMFPortfolio(string userId, string portfolioFileName, string portfolioRowId, bool bCurrent = true, bool bValuation = false)
         {
             DataTable resultDataTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -2204,7 +2204,7 @@ namespace DataAccessLayer
             return resultDataTable;
         }
 
-        private static void handlerPortfolioTableRowChanged(object sender, DataRowChangeEventArgs e)
+        private void handlerPortfolioTableRowChanged(object sender, DataRowChangeEventArgs e)
         {
             e.Row.Table.RowChanged -= new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
 
@@ -2257,7 +2257,7 @@ namespace DataAccessLayer
             e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
         }
 
-        public static DataTable GetMFValuationBarGraph(string userId, string portfolioName, string portfolioId)
+        public DataTable GetMFValuationBarGraph(string userId, string portfolioName, string portfolioId)
         {
             DataTable resultDataTable = null;
             SQLiteConnection sqlite_conn = null;
@@ -2362,7 +2362,7 @@ namespace DataAccessLayer
             return resultDataTable;
         }
 
-        private static void handlerMFValuationBarGraphRowChanged(object sender, DataRowChangeEventArgs e)
+        private void handlerMFValuationBarGraphRowChanged(object sender, DataRowChangeEventArgs e)
         {
             e.Row.Table.RowChanged -= new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
 
@@ -2410,7 +2410,7 @@ namespace DataAccessLayer
             e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
         }
 
-        public static DataTable GetValuationLineGraph(string userId, string portfolioName, string portfolioId)
+        public DataTable GetValuationLineGraph(string userId, string portfolioName, string portfolioId)
         {
             DataTable valuationTable = new DataTable();
             DataTable portfolioSummaryTable;
@@ -2617,7 +2617,7 @@ namespace DataAccessLayer
 
         #endregion
 
-        static public void TestLoadFromTo(DateTime dateFrom, DateTime dateTo)
+        public void TestLoadFromTo(DateTime dateFrom, DateTime dateTo)
         {
             string fromDt = dateFrom.ToString("yyyy-MM-dd");
             string toDt = dateTo.ToString("yyyy-MM-dd");
