@@ -66,7 +66,7 @@ namespace DataAccessLayer
             //    "   Version = 3; FailIfMissing=True; Foreign Keys=True; New = True; Compress = True; ");
 
             sqlite_conn = new SQLiteConnection("Data Source=" + sFilePath +
-                ";   Version = 3; FailIfMissing=True; Foreign Keys=True; New = True; Compress = True; ");
+                ";   Version = 3; FailIfMissing=True; Foreign Keys=True; New = True; Compress = True; PRAGMA synchronous=OFF;");
 
             // Open the connection:
             try
@@ -229,21 +229,22 @@ namespace DataAccessLayer
             StreamReader reader = null;
             StringBuilder sourceFile;
             long recCounter = 0;
-            string dateFrom;
-            string dateTo = null;
+            DateTime dateFrom;
+            DateTime dateTo; ;
 
             try
             {
-                dateFrom = System.Convert.ToDateTime(fromdt).ToString("yyyy-MM-dd");
+
+                dateFrom = System.Convert.ToDateTime(fromdt);//System.Convert.ToDateTime(fromdt).ToString("yyyy-MM-dd");
 
                 if (todt != null)
                 {
-                    dateTo = System.Convert.ToDateTime(todt).ToString("yyyy-MM-dd");
-                    webservice_url = string.Format(urlMF_NAV_HISTORY_FROM_TO, mfCode, dateFrom, dateTo);
+                    dateTo = System.Convert.ToDateTime(todt);//System.Convert.ToDateTime(todt).ToString("yyyy-MM-dd");
+                    webservice_url = string.Format(urlMF_NAV_HISTORY_FROM_TO, mfCode, dateFrom.ToString("yyyy-MM-dd"), dateTo.ToString("yyyy-MM-dd"));
                 }
                 else
                 {
-                    webservice_url = string.Format(urlMF_NAV_HISTORY_FROM, mfCode, dateFrom);
+                    webservice_url = string.Format(urlMF_NAV_HISTORY_FROM, mfCode, dateFrom.ToString("yyyy-MM-dd"));
                 }
                 url = new Uri(webservice_url);
                 var webRequest = WebRequest.Create(url);
@@ -305,19 +306,23 @@ namespace DataAccessLayer
             StringBuilder sCurrentFundHouse = new StringBuilder(string.Empty);
             DateTime dateStart = DateTime.Today, dateEnd = DateTime.Today;
             DateTime dateNAV;
-            StringBuilder currentLine = new StringBuilder();
             StringBuilder fieldSeparator = new StringBuilder(";");
+
+            SQLiteConnection sqlite_conn = null;
+            SQLiteCommand sqlite_cmd = null;
+
             try
             {
                 //No data found on the basis of selected parameters for this report
                 sourceLines = sourceFile.ToString().Split('\n');
                 sourceFile.Clear();
-                currentLine.Clear();
-                currentLine.Append(sourceLines[0]);
 
-                //if ((sourceLines[0].Contains(recFormat1.ToString())) || (sourceLines[0].Contains(recFormat2.ToString())))
-                if ((currentLine.Equals(recFormat1)) || (currentLine.Equals(recFormat2)))
+                if ((sourceLines[0].Contains(recFormat1.ToString())) || (sourceLines[0].Contains(recFormat2.ToString())))
                 {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    var transaction = sqlite_conn.BeginTransaction();
+
                     record.Clear();
                     record.Append(sourceLines[recCounter++]);
 
@@ -335,8 +340,8 @@ namespace DataAccessLayer
                         {
                             continue;
                         }
-                        //else if (record.Contains(";") == false)
-                        else if (record.Equals(fieldSeparator) == false)
+                        else if (record.ToString().Contains(";") == false)
+                        //else if (record.Equals(fieldSeparator) == false)
                         {
                             //case of either MF type or MF House
 
@@ -358,7 +363,7 @@ namespace DataAccessLayer
                                 {
                                     continue;
                                 }
-                                else if (record.Equals(fieldSeparator) == false)
+                                else if (record.ToString().Contains(";") == false)
                                 {
                                     //we found a MF company name
                                     mfType.Clear();
@@ -368,17 +373,17 @@ namespace DataAccessLayer
                                     tmp1.Clear();
                                     tmp1.Append(record);
 
-                                    schemetypeid = getSchemeTypeId(mfType.ToString());
+                                    schemetypeid = getSchemeTypeId(mfType.ToString(), sqlite_cmd);
                                     if (schemetypeid == -1)
                                     {
-                                        schemetypeid = insertSchemeType(mfType.ToString());
+                                        schemetypeid = insertSchemeType(mfType.ToString(), sqlite_cmd);
                                     }
                                     //sCurrentFundHouse = string.Empty;
                                     //sCurrentSchemeName = string.Empty;
 
                                     //Console.WriteLine("Schemetype= " + mfType);
                                 }
-                                else if (record.Equals(fieldSeparator) == true)
+                                else if (record.ToString().Contains(";") == true)
                                 {
                                     //we continue with same MF type
                                     mfCompName.Clear();
@@ -388,11 +393,11 @@ namespace DataAccessLayer
 
                                     if ((sCurrentFundHouse.Equals(string.Empty)) || (sCurrentFundHouse.Equals(mfCompName) == false))
                                     {
-                                        fundhousecode = getFundHouseCode(mfCompName.ToString());
+                                        fundhousecode = getFundHouseCode(mfCompName.ToString(), sqlite_cmd);
                                         if (fundhousecode == -1)
                                         {
                                             //this should never happen as the fundhouse table is manually maintained
-                                            fundhousecode = insertFundHouse(mfCompName.ToString());
+                                            fundhousecode = insertFundHouse(mfCompName.ToString(), sqlite_cmd);
                                         }
                                         sCurrentFundHouse.Clear();
                                         sCurrentFundHouse.Append(mfCompName);
@@ -413,6 +418,22 @@ namespace DataAccessLayer
 
                         if ((fields.Length == 6) || (fields.Length == 8))
                         {
+                            //if NetAssetValue = 0.00 then skip this record
+                            netAssetValue.Clear();
+                            netAssetValue.Append(fields[4]);
+                            try
+                            {
+                                nav = System.Convert.ToDouble(netAssetValue.ToString());
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("insertRecordInDB exception while setting NAV value: " + ex.Message);
+                                nav = 0.00;
+                            }
+                            if (nav == 0)
+                            {
+                                continue;
+                            }
                             //first get the schemecode
                             schemecode = int.Parse(fields[0]);
                             ISINDivPayoutISINGrowth.Clear();
@@ -421,8 +442,6 @@ namespace DataAccessLayer
                             ISINDivReinvestment.Append(fields[2]);
                             schemeName.Clear();
                             schemeName.Append(fields[3]);
-                            netAssetValue.Clear();
-                            netAssetValue.Append(fields[4]);
                             navDate.Clear();
                             navDate.Append(fields[5]);
 
@@ -442,66 +461,57 @@ namespace DataAccessLayer
                             //Now check if scheme exists in SCHEMES table
                             if ((sCurrentSchemeName.Equals(string.Empty)) ||
                                (sCurrentSchemeName.Equals(schemeName) == false) ||
-                               //(isSchemeExists(schemecode).ToUpper().Equals(schemeName.ToUpper()) == false))
-                               (schemeName.Equals(isSchemeExists(schemecode)) == false))
+                               (isSchemeExists(schemecode, sqlite_cmd).ToUpper().Equals(schemeName.ToString().ToUpper()) == false))
+                            //(schemeName.Equals(isSchemeExists(schemecode, sqlite_cmd)) == false))
                             {
                                 //insert new scheme in schemes tables
-                                insertScheme(fundhousecode, schemetypeid, schemecode, schemeName.ToString(), dateNAV.ToString("yyyy-MM-dd"), dateNAV.ToString("yyyy-MM-dd"));
+                                insertScheme(fundhousecode, schemetypeid, schemecode, schemeName.ToString(), dateNAV.ToString("yyyy-MM-dd"), dateNAV.ToString("yyyy-MM-dd"), sqlite_cmd);
                                 //System.Convert.ToDateTime(navDate).ToString("yyyy-MM-dd"), System.Convert.ToDateTime(navDate).ToString("yyyy-MM-dd"));
                                 sCurrentSchemeName = schemeName;
                                 dateStart = dateNAV;
                                 dateEnd = dateNAV;
                                 //Console.WriteLine("Counter= " + recCounter + "Scheme code= " + schemecode + "--Scheme name= " + schemeName);
                             }
-                            //else
-                            //{
-                            //    //check & update from & to date in schemes table for the scheme
-                            //    if (System.Convert.ToDateTime(navDate) < dateStart)
-                            //    {
-                            //        dateStart = System.Convert.ToDateTime(navDate);
-                            //        updateSchemeFromDate(schemecode, schemeName, dateStart.ToString("yyyy-MM-dd"));
-                            //    }
-                            //    else if (System.Convert.ToDateTime(navDate) > dateEnd)
-                            //    {
-                            //        dateEnd = System.Convert.ToDateTime(navDate);
-                            //        updateSchemeToDate(schemecode, schemeName, dateEnd.ToString("yyyy-MM-dd"));
-                            //    }
-                            //}
-                            try
-                            {
-                                nav = System.Convert.ToDouble(netAssetValue);
-                            }
-                            catch (Exception)
-                            {
-                                nav = 0.00;
-                            }
 
                             //MF_TYPE;MF_COMP_NAME;SCHEME_CODE;ISIN_Div_Payout_ISIN_Growth;ISIN_Div_Reinvestment;SCHEME_NAME;NET_ASSET_VALUE;DATE
                             insertTransaction(schemecode, ISINDivPayoutISINGrowth.ToString(), ISINDivReinvestment.ToString(), schemeName.ToString(),
-                                        string.Format("{0:0.0000}", nav), dateNAV.ToString("yyyy-MM-dd"));
+                                        string.Format("{0:0.0000}", nav), dateNAV.ToString("yyyy-MM-dd"), sqlite_cmd);
                         }
                     }
-                    UpdateSchemeFromToDate();
+                    UpdateSchemeFromToDate(sqlite_cmd);
+                    transaction.Commit();
                 }
+
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertRecordInDB exception: " + ex.Message);
                 throw ex;
             }
+            if (sqlite_cmd != null)
+            {
+                sqlite_cmd.Dispose();
+            }
+
+            if (sqlite_conn != null)
+            {
+                sqlite_conn.Close();
+                sqlite_conn.Dispose();
+            }
+
             return recCounter;
         }
 
-        static public long insertSchemeType(string schemeType)
+        static public long insertSchemeType(string schemeType, SQLiteCommand sqlite_cmd)
         {
             long schemetypeid = -1;
-            SQLiteConnection sqlite_conn = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
-                sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  SCHEME_TYPE(TYPE) VALUES (@TYPE)";
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
+                sqlite_cmd.CommandText = "REPLACE INTO  SCHEME_TYPE(TYPE) VALUES (@TYPE)";
                 sqlite_cmd.Prepare();
                 sqlite_cmd.Parameters.AddWithValue("@TYPE", schemeType);
 
@@ -520,45 +530,45 @@ namespace DataAccessLayer
                     Console.WriteLine("insertSchemeType: [" + schemeType + "] " + exSQL.Message);
                 }
 
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
 
                 if (schemetypeid > 0)
                 {
-                    schemetypeid = getSchemeTypeId(schemeType);
+                    schemetypeid = getSchemeTypeId(schemeType, sqlite_cmd);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertSchemeType: [" + schemeType + "] " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_cmd = null;
+            //sqlite_conn = null;
+            //sqlite_cmd = null;
             return schemetypeid;
         }
 
-        static public int insertFundHouse(string fundHouse)
+        static public int insertFundHouse(string fundHouse, SQLiteCommand sqlite_cmd)
         {
             int fundhousecode = -1;
-            SQLiteConnection sqlite_conn = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
                 //first get max(fundhousecode)
-                fundhousecode = getMaxFundHouseID(fundHouse);
+                fundhousecode = getMaxFundHouseID(fundHouse, sqlite_cmd);
 
                 if (fundhousecode != -1)
                 {
-                    sqlite_conn = CreateConnection();
-                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    //sqlite_conn = CreateConnection();
+                    //sqlite_cmd = sqlite_conn.CreateCommand();
 
                     try
                     {
@@ -573,38 +583,38 @@ namespace DataAccessLayer
                         Console.WriteLine("insertFundHouse: [" + fundHouse + "] " + exSQL.Message);
                         fundhousecode = -1;
                     }
-                    if (sqlite_cmd != null)
-                    {
-                        sqlite_cmd.Dispose();
-                    }
+                    //if (sqlite_cmd != null)
+                    //{
+                    //    sqlite_cmd.Dispose();
+                    //}
 
-                    if (sqlite_conn != null)
-                    {
-                        sqlite_conn.Close();
-                        sqlite_conn.Dispose();
-                    }
+                    //if (sqlite_conn != null)
+                    //{
+                    //    sqlite_conn.Close();
+                    //    sqlite_conn.Dispose();
+                    //}
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertFundHouse: [" + fundHouse + "] " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_cmd = null;
+            //sqlite_conn = null;
+            //sqlite_cmd = null;
             return fundhousecode;
         }
 
-        static public int insertScheme(int fundHouseCode, long schemeTypeId, int schemeCode, string schemeName, string dateFrom, string dateTo)
+        static public int insertScheme(int fundHouseCode, long schemeTypeId, int schemeCode, string schemeName, string dateFrom, string dateTo, SQLiteCommand sqlite_cmd)
         {
             int numOfRowsInserted = 0;
-            SQLiteConnection sqlite_conn = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
                 //sqlite_cmd.CommandText = "REPLACE INTO SCHEMES(SCHEMECODE, SCHEMENAME, FUNDHOUSECODE, SCHEMETYPEID) VALUES (@SCHEMECODE, @SCHEMENAME, @FUNDHOUSECODE, @SCHEMETYPEID)";
-                sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  SCHEMES(SCHEMECODE, SCHEMENAME, FUNDHOUSECODE, SCHEMETYPEID, FROM_DATE, TO_DATE) " +
+                sqlite_cmd.CommandText = "REPLACE INTO  SCHEMES(SCHEMECODE, SCHEMENAME, FUNDHOUSECODE, SCHEMETYPEID, FROM_DATE, TO_DATE) " +
                                          "VALUES (@SCHEMECODE, @SCHEMENAME, @FUNDHOUSECODE, @SCHEMETYPEID, @FROM_DATE, @TO_DATE)";
                 sqlite_cmd.Prepare();
                 sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE", schemeCode);
@@ -625,39 +635,40 @@ namespace DataAccessLayer
                 {
                     Console.WriteLine("insertScheme: [" + fundHouseCode + "," + schemeTypeId + "," + schemeCode + "," + schemeName + "] " + exSQL.Message);
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertScheme: [" + fundHouseCode + "," + schemeTypeId + "," + schemeCode + "," + schemeName + "] " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_cmd = null;
+            //sqlite_conn = null;
+            //sqlite_cmd = null;
             return numOfRowsInserted;
         }
 
         //Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date
         //insertTransaction(fundhousecode, schemetypeid, schemecode, fields[1], fields[2], fields[3], string.Format("{0:0.0000}", nav), System.Convert.ToDateTime(fields[5]).ToString("yyyy-MM-dd"));
         static public int insertTransaction(int schemeCode, string ISINDivPayout_ISINGrowth, string ISINDivReinvestment,
-                                           string schemeName, string netAssetValue, string navDate)
+                                           string schemeName, string netAssetValue, string navDate, SQLiteCommand sqlite_cmd)
         {
             int numOfRowsInserted = 0;
-            SQLiteConnection sqlite_conn = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
-                sqlite_cmd.CommandText = "INSERT OR IGNORE INTO NAVRECORDS(SCHEMECODE, ISIN_Div_Payout_ISIN_Growth, ISIN_Div_Reinvestment, " +
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_cmd.CommandText = "INSERT OR IGNORE INTO NAVRECORDS(SCHEMECODE, ISIN_Div_Payout_ISIN_Growth, ISIN_Div_Reinvestment, " +
+                sqlite_cmd.CommandText = "REPLACE INTO NAVRECORDS(SCHEMECODE, ISIN_Div_Payout_ISIN_Growth, ISIN_Div_Reinvestment, " +
                     "NET_ASSET_VALUE, NAVDATE) VALUES (@SCHEMECODE, @ISIN_Div_Payout_ISIN_Growth, @ISIN_Div_Reinvestment, " +
                     "@NET_ASSET_VALUE, @NAVDATE)";
                 sqlite_cmd.Prepare();
@@ -677,39 +688,39 @@ namespace DataAccessLayer
                     Console.WriteLine("insertTransaction: [" + schemeCode + "," + ISINDivPayout_ISINGrowth + ","
                         + ISINDivReinvestment + "," + schemeName + "," + netAssetValue + "," + navDate + "] " + exSQL.Message);
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertTransaction: [" + schemeCode + "," + ISINDivPayout_ISINGrowth + ","
                         + ISINDivReinvestment + "," + schemeName + "," + netAssetValue + "," + navDate + "] " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_cmd = null;
+            //sqlite_conn = null;
+            //sqlite_cmd = null;
             return numOfRowsInserted;
         }
         #endregion
 
         #region update_methods
 
-        static public int UpdateSchemeFromToDate()
+        static public int UpdateSchemeFromToDate(SQLiteCommand sqlite_cmd)
         {
             int numOfRowsUpdated = 0;
-            SQLiteConnection sqlite_conn = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
                 sqlite_cmd.CommandText = "UPDATE SCHEMES SET FROM_DATE = T.MINNAVDATE, TO_DATE = T.MAXNAVDATE " +
                                          "FROM (select MIN(NAVDATE) AS MINNAVDATE, MAX(NAVDATE) AS MAXNAVDATE, SCHEMECODE from NAVRECORDS GROUP BY 3) AS T " +
                                          "WHERE SCHEMES.SCHEMECODE = T.SCHEMECODE";
@@ -724,23 +735,23 @@ namespace DataAccessLayer
                 {
                     Console.WriteLine("UpdateSchemeFromToDate: " + exSQL.Message);
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
             }
             catch (Exception ex)
             {
                 Console.WriteLine("insertScheme: " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_cmd = null;
+            //sqlite_conn = null;
+            //sqlite_cmd = null;
             return numOfRowsUpdated;
         }
 
@@ -835,16 +846,21 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="fundHouse">name of the fund house</param>
         /// <returns>matchng fund house code</returns>
-        static public int getFundHouseCode(string fundHouse)
+        static public int getFundHouseCode(string fundHouse, SQLiteCommand sqlite_cmd = null)
         {
             int fundhousecode = -1;
             SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteCommand sqlite_cmd = null;
+            SQLiteTransaction transaction = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
                 sqlite_cmd.CommandText = "SELECT FUNDHOUSECODE FROM FUNDHOUSE WHERE NAME = '" + fundHouse + "'";
                 try
                 {
@@ -870,20 +886,25 @@ namespace DataAccessLayer
                 if (sqlite_datareader != null)
                 {
                     sqlite_datareader.Close();
+                    sqlite_datareader = null;
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
-
                 if (sqlite_conn != null)
                 {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                    }
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
                     sqlite_conn.Close();
                     sqlite_conn.Dispose();
+                    transaction = null;
+                    sqlite_cmd = null;
+                    sqlite_conn = null;
                 }
-                sqlite_conn = null;
-                sqlite_datareader = null;
-                sqlite_cmd = null;
             }
             return fundhousecode;
         }
@@ -904,6 +925,7 @@ namespace DataAccessLayer
             {
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
                 sqlite_cmd.CommandText = "SELECT FUNDHOUSECODE, NAME FROM FUNDHOUSE";
                 try
                 {
@@ -921,6 +943,9 @@ namespace DataAccessLayer
                         returnTable = null;
                     }
                 }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
             }
             catch (Exception ex)
             {
@@ -953,16 +978,16 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="schemeType"></param>
         /// <returns>ID of matching scheme type</returns>
-        static public long getSchemeTypeId(string schemeType)
+        static public long getSchemeTypeId(string schemeType, SQLiteCommand sqlite_cmd)
         {
             long schemetypeid = -1;
-            SQLiteConnection sqlite_conn = null;
+            //SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null; ;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
                 sqlite_cmd.CommandText = "SELECT ROWID FROM SCHEME_TYPE WHERE TYPE = '" + schemeType + "'";
                 try
                 {
@@ -989,20 +1014,20 @@ namespace DataAccessLayer
                 {
                     sqlite_datareader.Close();
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
 
-                sqlite_conn = null;
+                //sqlite_conn = null;
                 sqlite_datareader = null; ;
-                sqlite_cmd = null;
+                //sqlite_cmd = null;
             }
             return schemetypeid;
         }
@@ -1023,6 +1048,7 @@ namespace DataAccessLayer
             {
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
+                var trancation = sqlite_conn.BeginTransaction();
                 sqlite_cmd.CommandText = "SELECT ROWID, TYPE FROM SCHEME_TYPE";
                 try
                 {
@@ -1040,6 +1066,9 @@ namespace DataAccessLayer
                         returnTable = null;
                     }
                 }
+                trancation.Commit();
+                trancation.Dispose();
+                trancation = null;
             }
             catch (Exception ex)
             {
@@ -1073,16 +1102,16 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="schemeCode"></param>
         /// <returns>matching scheme name if found else empty string </returns>
-        static public string isSchemeExists(int schemeCode)
+        static public string isSchemeExists(int schemeCode, SQLiteCommand sqlite_cmd)
         {
             string schemeName = string.Empty;
-            SQLiteConnection sqlite_conn = null;
+            //SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
                 sqlite_cmd.CommandText = "SELECT SCHEMENAME FROM SCHEMES WHERE SCHEMECODE = @CODE";
                 sqlite_cmd.Prepare();
                 sqlite_cmd.Parameters.AddWithValue("@CODE", schemeCode);
@@ -1112,20 +1141,20 @@ namespace DataAccessLayer
                 {
                     sqlite_datareader.Close();
                 }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
 
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
 
-                sqlite_conn = null;
+                //sqlite_conn = null;
                 sqlite_datareader = null;
-                sqlite_cmd = null;
+                //sqlite_cmd = null;
             }
             return schemeName;
         }
@@ -1165,6 +1194,7 @@ namespace DataAccessLayer
                 }
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
                 sqlite_cmd.CommandText = statement;
                 try
                 {
@@ -1182,6 +1212,9 @@ namespace DataAccessLayer
                         returnTable = null;
                     }
                 }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
             }
             catch (Exception ex)
             {
@@ -1210,16 +1243,16 @@ namespace DataAccessLayer
             return returnTable;
         }
 
-        static public int getMaxFundHouseID(string fundHouse)
+        static public int getMaxFundHouseID(string fundHouse, SQLiteCommand sqlite_cmd)
         {
             int fundhousecode = -1;
-            SQLiteConnection sqlite_conn = null;
+            //SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null;
-            SQLiteCommand sqlite_cmd = null;
+            //SQLiteCommand sqlite_cmd = null;
             try
             {
-                sqlite_conn = CreateConnection();
-                sqlite_cmd = sqlite_conn.CreateCommand();
+                //sqlite_conn = CreateConnection();
+                //sqlite_cmd = sqlite_conn.CreateCommand();
 
                 //first get max(fundhousecode)
                 sqlite_cmd.CommandText = "SELECT MAX(FUNDHOUSECODE) FROM FUNDHOUSE";
@@ -1239,28 +1272,31 @@ namespace DataAccessLayer
                     Console.WriteLine("getMaxFundHouseID: [" + fundHouse + "] " + exSQL.Message);
                     fundhousecode = -1;
                 }
-                if (sqlite_datareader != null)
-                {
-                    sqlite_datareader.Close();
-                }
-                if (sqlite_cmd != null)
-                {
-                    sqlite_cmd.Dispose();
-                }
-
-                if (sqlite_conn != null)
-                {
-                    sqlite_conn.Close();
-                    sqlite_conn.Dispose();
-                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine("getMaxFundHouseID: [" + fundHouse + "] " + ex.Message);
             }
-            sqlite_conn = null;
-            sqlite_datareader = null;
-            sqlite_cmd = null;
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                //if (sqlite_cmd != null)
+                //{
+                //    sqlite_cmd.Dispose();
+                //}
+
+                //if (sqlite_conn != null)
+                //{
+                //    sqlite_conn.Close();
+                //    sqlite_conn.Dispose();
+                //}
+                //sqlite_conn = null;
+                sqlite_datareader = null;
+                //sqlite_cmd = null;
+            }
             return fundhousecode;
         }
 
@@ -1290,6 +1326,7 @@ namespace DataAccessLayer
                 }
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
                 sqlite_cmd.CommandText = statement;
                 try
                 {
@@ -1320,6 +1357,9 @@ namespace DataAccessLayer
                         returnTable = null;
                     }
                 }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
             }
             catch (Exception ex)
             {
@@ -1431,6 +1471,8 @@ namespace DataAccessLayer
             }
             catch (Exception ex)
             {
+                Console.WriteLine("getRSIDataTableFromDailyNAV exception: " + ex.Message);
+
                 if (rsiDataTable != null)
                 {
                     rsiDataTable.Clear();
@@ -1459,22 +1501,368 @@ namespace DataAccessLayer
             {
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
                 try
                 {
-                    sqlite_cmd.CommandText = "INSERT INTO PORTFOLIO_MASTER(USERID, PORTFOLIO_NAME) VALUES (@USERID, @NAME)";
+                    sqlite_cmd.CommandText = "INSERT OR IGNORE INTO   PORTFOLIO_MASTER(USERID, PORTFOLIO_NAME) VALUES (@USERID, @NAME)";
                     sqlite_cmd.Prepare();
                     sqlite_cmd.Parameters.AddWithValue("@USERID", userid);
                     sqlite_cmd.Parameters.AddWithValue("@NAME", portfolioname);
                     if (sqlite_cmd.ExecuteNonQuery() > 0)
                     {
-                        sqlite_cmd.CommandText = "SELECT seq from sqlite_sequence WHERE name = \"PORTFOLIO\"";
-                        portfolio_id = Convert.ToInt64(sqlite_cmd.ExecuteScalar());
+                        portfolio_id = getPortfolioId(portfolioname, userid, sqlite_cmd);
+                        //sqlite_cmd.CommandText = "SELECT seq from sqlite_sequence WHERE name = \"PORTFOLIO\"";
+                        //portfolio_id = Convert.ToInt64(sqlite_cmd.ExecuteScalar());
                     }
                 }
                 catch (SQLiteException exSQL)
                 {
                     Console.WriteLine("CreateNewPortfolio: " + userid + ", " + portfolioname + "\n" + exSQL.Message);
                     portfolio_id = -1;
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch
+            {
+                portfolio_id = -1;
+            }
+            finally
+            {
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_cmd = null;
+                sqlite_conn = null;
+            }
+            return portfolio_id;
+        }
+
+        static public DataTable getPortfolioTable(string userId, SQLiteCommand sqlite_cmd = null)
+        {
+            DataTable portfolioTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null;
+            SQLiteTransaction transaction = null;
+            try
+            {
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
+                sqlite_cmd.CommandText = "SELECT ROWID AS ID, USERID, PORTFOLIO_NAME FROM PORTFOLIO_MASTER WHERE USERID = '" + userId + "'";
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    portfolioTable = new DataTable();
+                    portfolioTable.Columns.Add("USERID", typeof(string));
+                    portfolioTable.Columns.Add("PORTFOLIO_NAME", typeof(string));
+                    portfolioTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("getPortfolioTable: [" + userId + "] " + exSQL.Message);
+                    if (portfolioTable != null)
+                    {
+                        portfolioTable.Clear();
+                        portfolioTable.Dispose();
+                        portfolioTable = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getPortfolioTable: [" + userId + "] " + ex.Message);
+                if (portfolioTable != null)
+                {
+                    portfolioTable.Clear();
+                    portfolioTable.Dispose();
+                    portfolioTable = null;
+                }
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                    sqlite_datareader = null;
+                }
+
+                if (sqlite_conn != null)
+                {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                    }
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                    transaction = null;
+                    sqlite_cmd = null;
+                    sqlite_conn = null;
+                }
+            }
+
+            return portfolioTable;
+        }
+        static public long getPortfolioId(string portfolioName, string userId, SQLiteCommand sqlite_cmd = null)
+        {
+            long portfolioId = -1;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null;
+            SQLiteTransaction transaction = null;
+            try
+            {
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
+                sqlite_cmd.CommandText = "SELECT ROWID FROM PORTFOLIO_MASTER WHERE USERID = '" + userId + "' AND PORTFOLIO_NAME = '" + portfolioName + "'";
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    //if (sqlite_datareader.HasRows)
+                    if (sqlite_datareader.Read())
+                    {
+                        //sqlite_datareader.Read();
+                        portfolioId = Int64.Parse(sqlite_datareader["ROWID"].ToString());
+                    }
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("getPortfoliId: [" + userId + "," + portfolioName + "]" + exSQL.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getPortfoliId: [" + userId + "," + portfolioName + "]" + ex.Message);
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                    sqlite_datareader = null;
+                }
+                if (sqlite_conn != null)
+                {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                    }
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                    transaction = null;
+                    sqlite_cmd = null;
+                    sqlite_conn = null;
+                }
+                sqlite_datareader = null; ;
+            }
+            return portfolioId;
+        }
+
+        static public bool addNewTransaction(string userId, string portfolioName, string schemeCode, string purchaseDate, string purchaseNAV,
+                                            string purchaseUnits, string valueAtCost, long portfolioId, SQLiteCommand sqlite_cmd = null)
+        {
+            bool breturn = false;
+            SQLiteConnection sqlite_conn = null;
+            //SQLiteCommand sqlite_cmd = null;
+            //long portfolioId;
+            SQLiteTransaction transaction = null;
+
+            try
+            {
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
+                try
+                {
+                    //if (portfolioId == -1)
+                    //{
+                    //    portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
+                    //}
+                    //if (portfolioId > 0)
+                    {
+                        sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  PORTFOLIO(MASTER_ROWID, SCHEMECODE, PURCHASE_DATE, PURCHASE_NAV, PURCHASE_UNITS, VALUE_AT_COST) " +
+                                                 "VALUES (@MASTER_ROWID, @SCHEMECODE, @PURCHASE_DATE, @PURCHASE_NAV, @PURCHASE_UNITS, @VALUE_AT_COST)";
+                        sqlite_cmd.Prepare();
+                        sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
+                        sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE", schemeCode);
+                        sqlite_cmd.Parameters.AddWithValue("@PURCHASE_DATE", System.Convert.ToDateTime(purchaseDate).ToString("yyyy-MM-dd"));
+                        sqlite_cmd.Parameters.AddWithValue("@PURCHASE_NAV", string.Format("{0:0:0000}", purchaseNAV));
+                        sqlite_cmd.Parameters.AddWithValue("@PURCHASE_UNITS", string.Format("{0:0.0000}", purchaseUnits));
+                        sqlite_cmd.Parameters.AddWithValue("@VALUE_AT_COST", string.Format("{0:0.0000}", valueAtCost));
+                        try
+                        {
+                            if (sqlite_cmd.ExecuteNonQuery() > 0)
+                            {
+                                breturn = true;
+                            }
+                        }
+                        catch (SQLiteException exSQL)
+                        {
+                            Console.WriteLine("addNewTransaction: [" + schemeCode + "," + portfolioName + "," + purchaseDate + "," + purchaseUnits + purchaseNAV + "] " + exSQL.Message);
+                        }
+                    }
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("addNewTransaction: [" + schemeCode + "," + portfolioName + "," + purchaseDate + "," + purchaseUnits + purchaseNAV + "] " + exSQL.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("addNewTransaction: [" + schemeCode + "," + portfolioName + "," + purchaseDate + "," + purchaseUnits + purchaseNAV + "] " + ex.Message);
+            }
+            finally
+            {
+                if (sqlite_conn != null)
+                {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                    }
+
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                    transaction = null;
+                    sqlite_cmd = null;
+                    sqlite_conn = null;
+                }
+            }
+            return breturn;
+        }
+
+        static public int getNextSIPDurationCounter(string frequency)
+        {
+            int returnCounter = 0;
+
+            if (frequency.Equals("Daily"))
+            {
+                returnCounter = 1;
+            }
+            else if (frequency.Equals("Weekly"))
+            {
+                returnCounter = 7;
+            }
+            else
+            {
+                returnCounter = 30;
+            }
+
+            return returnCounter;
+        }
+
+        static public bool addNewSIP(string userId, string portfolioName, long portfolioRowId, string schemeCode, string startDate, string endDate, string monthlyContribution,
+                                    string sipFrequency = null, string monthday = null)
+        {
+            bool breturn = false;
+            DataTable datewiseData = null;
+            DateTime fromDt;
+            DateTime toDt;
+            double purchaseUnits;
+            double valueAtCost = System.Convert.ToDouble(monthlyContribution);
+            double purchaseNAV;
+            //long portfolioId = -1;
+
+            SQLiteConnection sqlite_conn = null;
+            SQLiteCommand sqlite_cmd = null;
+
+            try
+            {
+                fromDt = System.Convert.ToDateTime(startDate);
+                toDt = System.Convert.ToDateTime(endDate);
+
+                datewiseData = getNAVRecordsTable(System.Convert.ToInt32(schemeCode), fromDate: fromDt.ToString("yyyy-MM-dd"), toDate: toDt.ToString("yyyy-MM-dd"));
+
+                //returnTable.Columns.Add("ID", typeof(long));
+                //returnTable.Columns.Add("SCHEMETYPEID", typeof(long));
+                //returnTable.Columns.Add("TYPE", typeof(string));
+                //returnTable.Columns.Add("FUNDHOUSECODE", typeof(int));
+                //returnTable.Columns.Add("NAME", typeof(string));
+                //returnTable.Columns.Add("SCHEMECODE", typeof(long));
+                //returnTable.Columns.Add("SCHEMENAME", typeof(string));
+                //returnTable.Columns.Add("NET_ASSET_VALUE", typeof(decimal));
+                //returnTable.Columns.Add("NAVDATE", typeof(DateTime));
+
+
+                if ((datewiseData != null) && (datewiseData.Rows.Count > 0))
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    var transaction = sqlite_conn.BeginTransaction();
+                    try
+                    {
+                        //portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
+
+                        for (int rownum = 0; rownum < datewiseData.Rows.Count; rownum += getNextSIPDurationCounter(sipFrequency))
+                        {
+                            purchaseNAV = System.Convert.ToDouble(datewiseData.Rows[rownum]["NET_ASSET_VALUE"]);
+
+                            purchaseUnits = 0.00;
+                            if (purchaseNAV > 0)
+                            {
+                                purchaseUnits = Math.Round((valueAtCost / purchaseNAV), 4);
+                            }
+                            //string.Format("{0:0.0000}", fields[4])
+                            addNewTransaction(userId, portfolioName, schemeCode,
+                                datewiseData.Rows[rownum]["NAVDATE"].ToString(),
+                                string.Format("{0:0.0000}", purchaseNAV),
+                                string.Format("{0:0.0000}", purchaseUnits), string.Format("{0:0.0000}", valueAtCost), portfolioRowId, sqlite_cmd: sqlite_cmd);
+                        }
+                        breturn = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("addNewSIP exception: " + ex.Message);
+                        breturn = false;
+                    }
+                    transaction.Commit();
+                    transaction.Dispose();
+                    transaction = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("addNewSIP exception: " + ex.Message);
+                breturn = false;
+            }
+            finally
+            {
+                if (datewiseData != null)
+                {
+                    datewiseData.Clear();
+                    datewiseData.Dispose();
+                    datewiseData = null;
                 }
                 if (sqlite_cmd != null)
                 {
@@ -1486,20 +1874,753 @@ namespace DataAccessLayer
                     sqlite_conn.Close();
                     sqlite_conn.Dispose();
                 }
+                sqlite_conn = null;
+                sqlite_cmd = null;
             }
-            catch
+            return breturn;
+        }
+
+        static public bool deletePortfolioRow(string userId, string portfolioName, string portfolioRowId, string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
+        {
+            bool breturn = false;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteCommand sqlite_cmd = null;
+            //long portfolioId = -1;
+
+            try
             {
-                portfolio_id = -1;
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+
+                //portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
+                //portfolioId = System.Convert.ToInt64(portfolioRowId);
+                //if (portfolioId > 0)
+                {
+                    sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE ROWID = " + portfolioRowId;
+
+                    //sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID AND SCHEMECODE = @SCHEMECODE AND PURCHASE_DATE = @PURCHASE_DATE AND PURCHASE_NAV = @PURCHASE_NAV " +
+                    //                        "AND PURCHASE_UNITS = @PURCHASE_UNITS AND VALUE_AT_COST = @VALUE_AT_COST";
+
+                    //sqlite_cmd.Prepare();
+                    //sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
+                    //sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE", schemeCode);
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_DATE", System.Convert.ToDateTime(purchaseDate).ToString("yyyy-MM-dd"));
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_NAV", string.Format("{0:0:0000}", purchaseNAV));
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_UNITS", string.Format("{0:0.0000}", purchaseUnits));
+                    //sqlite_cmd.Parameters.AddWithValue("@VALUE_AT_COST", string.Format("{0:0.0000}", valueAtCost));
+                    try
+                    {
+                        if (sqlite_cmd.ExecuteNonQuery() > 0)
+                        {
+                            breturn = true;
+                        }
+                    }
+                    catch (SQLiteException exSQL)
+                    {
+                        Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + exSQL.Message);
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
             }
-            return portfolio_id;
+            catch (Exception ex)
+            {
+                Console.WriteLine("deletePortfolioRow exception: " + ex.Message);
+                breturn = false;
+            }
+            finally
+            {
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_cmd = null;
+                sqlite_conn = null;
+            }
+            return breturn;
+        }
+
+        static public bool updateTransaction(string userId, string portfolioName, string portfolioRowId, string oldschemeCode, string oldpurchaseDate, string oldpurchaseNAV, string oldpurchaseUnits, string oldvalueAtCost,
+                                            string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
+        {
+            bool breturn = false;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteCommand sqlite_cmd = null;
+            //long portfolioId = -1;
+
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+
+                //portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
+                //if (portfolioId > 0)
+                {
+                    sqlite_cmd.CommandText = "UPDATE PORTFOLIO SET SCHEMECODE = @SCHEMECODE, PURCHASE_DATE = @PURCHASE_DATE, PURCHASE_NAV = @PURCHASE_NAV, " +
+                                            "PURCHASE_UNITS = @PURCHASE_UNITS, VALUE_AT_COST = @VALUE_AT_COST " +
+                                            "WHERE ROWID = " + portfolioRowId;
+
+
+                    //sqlite_cmd.CommandText = "UPDATE PORTFOLIO SET SCHEMECODE = @SCHEMECODE, PURCHASE_DATE = @PURCHASE_DATE, PURCHASE_NAV = @PURCHASE_NAV, PURCHASE_UNITS = @PURCHASE_UNITS, VALUE_AT_COST = @VALUE_AT_COST " +
+                    //                        "WHERE MASTER_ROWID = @MASTER_ROW_ID AND SCHEMECODE = @SCHEMECODE_OLD AND PURCHASE_DATE = @PURCHASE_DATE_OLD AND PURCHASE_NAV = @PURCHASE_NAV_OLD " +
+                    //                        "AND PURCHASE_UNITS = @PURCHASE_UNITS_OLD AND VALUE_AT_COST = @VALUE_AT_COST_OLD";
+                    sqlite_cmd.Prepare();
+                    //sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
+                    //sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE_OLD", oldschemeCode);
+                    sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE", schemeCode);
+                    sqlite_cmd.Parameters.AddWithValue("@PURCHASE_DATE", System.Convert.ToDateTime(purchaseDate).ToString("yyyy-MM-dd"));
+                    sqlite_cmd.Parameters.AddWithValue("@PURCHASE_NAV", string.Format("{0:0:0000}", purchaseNAV));
+                    sqlite_cmd.Parameters.AddWithValue("@PURCHASE_UNITS", string.Format("{0:0.0000}", purchaseUnits));
+                    sqlite_cmd.Parameters.AddWithValue("@VALUE_AT_COST", string.Format("{0:0.0000}", valueAtCost));
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_DATE_OLD", System.Convert.ToDateTime(oldpurchaseDate).ToString("yyyy-MM-dd"));
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_NAV_OLD", string.Format("{0:0:0000}", oldpurchaseNAV));
+                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_UNITS_OLD", string.Format("{0:0.0000}", oldpurchaseUnits));
+                    //sqlite_cmd.Parameters.AddWithValue("@VALUE_AT_COST_OLD", string.Format("{0:0.0000}", oldvalueAtCost));
+
+                    try
+                    {
+                        if (sqlite_cmd.ExecuteNonQuery() > 0)
+                        {
+                            breturn = true;
+                        }
+                    }
+                    catch (SQLiteException exSQL)
+                    {
+                        Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + exSQL.Message);
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("updateTransaction exception: " + ex.Message);
+                breturn = false;
+            }
+            finally
+            {
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_cmd = null;
+                sqlite_conn = null;
+            }
+            return breturn;
+        }
+
+
+        static public bool deletePortfolio(string userId, string portfolioName)
+        {
+            bool breturn = false;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteCommand sqlite_cmd = null;
+            long portfolioId = -1;
+
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+
+                portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
+                if (portfolioId > 0)
+                {
+                    sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID";
+                    sqlite_cmd.Prepare();
+                    sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
+                    try
+                    {
+                        if (sqlite_cmd.ExecuteNonQuery() > 0)
+                        {
+                            sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID";
+                            sqlite_cmd.Prepare();
+                            sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
+                            if (sqlite_cmd.ExecuteNonQuery() > 0)
+                            {
+                                breturn = true;
+                            }
+                        }
+                    }
+                    catch (SQLiteException exSQL)
+                    {
+                        Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + exSQL.Message);
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + ex.Message);
+                breturn = false;
+            }
+            finally
+            {
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_cmd = null;
+                sqlite_conn = null;
+            }
+
+            return breturn;
+        }
+
+        static public DataTable openMFPortfolio(string userId, string portfolioFileName, string portfolioRowId, bool bCurrent = true, bool bValuation = false)
+        {
+            DataTable resultDataTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+            string statement = "SELECT PORTFOLIO.ROWID AS ID, FUNDHOUSE.NAME as FundHouse, SCHEMES.SCHEMENAME as FundName, SCHEMES.SCHEMECODE as SCHEME_CODE, " +
+                               "strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE) AS PurchaseDate, PORTFOLIO.PURCHASE_NAV as PurchaseNAV, PORTFOLIO.PURCHASE_UNITS as PurchaseUnits, " +
+                               "PORTFOLIO.VALUE_AT_COST as ValueAtCost, NAVRECORDS.NET_ASSET_VALUE AS CurrentNAV, strftime('%d-%m-%Y', NAVRECORDS.NAVDATE) as NAVDate from SCHEMES " +
+                               "INNER JOIN PORTFOLIO ON PORTFOLIO.SCHEMECODE = SCHEMES.SCHEMECODE " +
+                               "INNER JOIN FUNDHOUSE ON FUNDHOUSE.FUNDHOUSECODE = SCHEMES.FUNDHOUSECODE " +
+                               "INNER JOIN NAVRECORDS ON NAVRECORDS.SCHEMECODE = SCHEMES.SCHEMECODE " +
+                               "WHERE NAVRECORDS.NAVDATE = SCHEMES.TO_DATE AND PORTFOLIO.MASTER_ROWID = " + portfolioRowId;
+
+            try
+            {
+
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = statement;
+                try
+                {
+                    //get all records from portfolio table matching portfolioname
+                    //get related scheme name, scheme id from schemes table
+                    //get latest NAV from NAVrecords table where NAVDate = schemes.todate
+
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    resultDataTable = new DataTable();
+                    //FundHouse;FundName;SCHEME_CODE;PurchaseDate;PurchaseNAV;PurchaseUnits;ValueAtCost
+                    resultDataTable.Columns.Add("ID", typeof(long)); //FundHouse
+                    resultDataTable.Columns.Add("FundHouse", typeof(string)); //FundHouse
+                    resultDataTable.Columns.Add("FundName", typeof(string)); //FundName
+                    resultDataTable.Columns.Add("SCHEME_CODE", typeof(string)); //SCHEME_CODE
+                    resultDataTable.Columns.Add("PurchaseDate", typeof(DateTime)); //PurchaseDate
+                    resultDataTable.Columns.Add("PurchaseNAV", typeof(decimal)); //PurchaseNAV
+                    resultDataTable.Columns.Add("PurchaseUnits", typeof(decimal)); //PurchaseUnits
+                    resultDataTable.Columns.Add("ValueAtCost", typeof(decimal)); //ValueAtCost
+
+                    resultDataTable.Columns.Add("CurrentNAV", typeof(decimal));
+                    resultDataTable.Columns.Add("NAVDate", typeof(DateTime));
+                    resultDataTable.Columns.Add("CurrentValue", typeof(decimal));
+                    resultDataTable.Columns.Add("YearsInvested", typeof(decimal));
+                    resultDataTable.Columns.Add("ARR", typeof(decimal));
+                    resultDataTable.RowChanged += new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
+
+                    ////resultDataTable.Columns.Add("CurrentValue", typeof(decimal), "Math.Round(CurrentNAV * System.Convert.ToDouble(string.Format(\"{0:0.0000}\", PurchaseUnits)), 4)");
+                    //resultDataTable.Columns.Add("CurrentValue", typeof(decimal), "(CurrentNAV * System.Convert.ToDouble(string.Format(\"{0:0.0000}\", PurchaseUnits))");
+
+                    ////resultDataTable.Columns.Add("YearsInvested", typeof(decimal), "Math.Round(((NAVDate - PurchaseDate).TotalDays) / 365.25, 4)");
+                    //resultDataTable.Columns.Add("YearsInvested", typeof(decimal), "(((NAVDate - PurchaseDate).TotalDays) / 365.25)");
+
+                    ////resultDataTable.Columns.Add("ARR", typeof(decimal), "Math.Round(Math.Pow((CurrentValue / System.Convert.ToDouble(string.Format(\"{0:0.0000}\", ValueAtCost))), (1 / YearsInvested)) - 1, 4)");
+                    //resultDataTable.Columns.Add("ARR", typeof(decimal), "(Math.Pow((CurrentValue / System.Convert.ToDouble(string.Format(\"{0:0.0000}\", ValueAtCost))), (1 / YearsInvested)) - 1)");
+
+                    resultDataTable.Load(sqlite_datareader);
+                    resultDataTable.RowChanged -= new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("openMFPortfolio: " + exSQL.Message);
+                    if (resultDataTable != null)
+                    {
+                        resultDataTable.Clear();
+                        resultDataTable.Dispose();
+                        resultDataTable = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("openMFPortfolio: " + ex.Message);
+                    if (resultDataTable != null)
+                    {
+                        resultDataTable.Clear();
+                        resultDataTable.Dispose();
+                        resultDataTable = null;
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("openMFPortfolio: " + ex.Message);
+                if (resultDataTable != null)
+                {
+                    resultDataTable.Clear();
+                    resultDataTable.Dispose();
+                    resultDataTable = null;
+                }
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+            }
+
+            return resultDataTable;
+        }
+
+        private static void handlerPortfolioTableRowChanged(object sender, DataRowChangeEventArgs e)
+        {
+            e.Row.Table.RowChanged -= new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
+
+            double currentNAV, valueAtCost, currentValue, yearsInvested, arr;
+            DateTime currentNAVdt, purchaseNAVDt;
+            currentNAV = 0.00; currentValue = 0.00; yearsInvested = 0.00; arr = 0.00; valueAtCost = 0.00;
+            //currentNAVdt = DateTime.Today;
+            currentNAVdt = DateTime.MinValue;
+
+            currentNAV = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["CurrentNAV"]));
+            currentValue = Math.Round(currentNAV * System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["PurchaseUnits"])), 4);
+            currentNAVdt = System.Convert.ToDateTime(e.Row["NAVDate"].ToString());
+            purchaseNAVDt = System.Convert.ToDateTime(e.Row["PurchaseDate"].ToString());
+
+            try
+            {
+                yearsInvested = Math.Round(((currentNAVdt - purchaseNAVDt).TotalDays) / 365.25, 4);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("openMFPortfolio: " + ex.Message);
+                yearsInvested = Math.Round(0.00, 4);
+            }
+            valueAtCost = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["ValueAtCost"]));
+
+            try
+            {
+                arr = Math.Round(0.00, 4);
+                if (yearsInvested > 0)
+                {
+                    arr = Math.Round(Math.Pow((currentValue / valueAtCost), (1 / yearsInvested)) - 1, 4);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("openMFPortfolio: " + ex.Message);
+                arr = Math.Round(0.00, 4);
+            }
+            e.Row["PurchaseDate"] = purchaseNAVDt.ToString("yyyy-MM-dd");
+            e.Row["PurchaseNAV"] = string.Format("{0:0.0000}", e.Row["PurchaseNAV"]);
+            e.Row["PurchaseUnits"] = string.Format("{0:0.0000}", e.Row["PurchaseUnits"]);
+            e.Row["ValueAtCost"] = string.Format("{0:0.0000}", valueAtCost);
+
+            e.Row["CurrentNAV"] = string.Format("{0:0.0000}", currentNAV);
+            e.Row["NAVDate"] = currentNAVdt.ToString("yyyy-MM-dd");
+            e.Row["CurrentValue"] = string.Format("{0:0.0000}", currentValue);
+            e.Row["YearsInvested"] = string.Format("{0:0.0000}", yearsInvested);
+            e.Row["ARR"] = string.Format("{0:0.0000}", arr);
+
+            e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
+        }
+
+        public static DataTable GetMFValuationBarGraph(string userId, string portfolioName, string portfolioId)
+        {
+            DataTable resultDataTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+            string statement = "SELECT PORTFOLIO.ROWID AS ID, FUNDHOUSE.NAME AS FundHouse, SCHEMES.SCHEMENAME as FundName, SCHEMES.SCHEMECODE as SCHEME_CODE, " +
+                               "min(strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE)) as FirstPurchaseDate, " +
+                               "sum(PORTFOLIO.PURCHASE_UNITS) as CumulativeUnits, " +
+                               "sum(PORTFOLIO.VALUE_AT_COST) as CumulativeCost, " +
+                               "NAVRECORDS.NET_ASSET_VALUE AS CurrentNAV, " +
+                               "strftime('%d-%m-%Y', NAVRECORDS.NAVDATE) as NAVDate, " +
+                               "(sum(PORTFOLIO.PURCHASE_UNITS) * NAVRECORDS.NET_ASSET_VALUE) as CumulativeValue " +
+                               "from SCHEMES " +
+                               "INNER JOIN PORTFOLIO ON PORTFOLIO.SCHEMECODE = SCHEMES.SCHEMECODE " +
+                               "INNER JOIN FUNDHOUSE ON FUNDHOUSE.FUNDHOUSECODE = SCHEMES.FUNDHOUSECODE " +
+                               "INNER JOIN NAVRECORDS ON NAVRECORDS.SCHEMECODE = SCHEMES.SCHEMECODE " +
+                               "WHERE NAVRECORDS.NAVDATE = SCHEMES.TO_DATE AND PORTFOLIO.MASTER_ROWID = " + portfolioId +
+                               " GROUP BY FundName";
+            try
+            {
+
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = statement;
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    resultDataTable = new DataTable();
+                    //FundHouse;FundName;SCHEME_CODE;PurchaseDate;PurchaseNAV;PurchaseUnits;ValueAtCost
+                    resultDataTable.Columns.Add("ID", typeof(long)); //FundHouse
+                    resultDataTable.Columns.Add("FundHouse", typeof(string)); //FundHouse
+                    resultDataTable.Columns.Add("FundName", typeof(string)); //FundName
+                    resultDataTable.Columns.Add("SCHEME_CODE", typeof(string)); //SCHEME_CODE
+                    resultDataTable.Columns.Add("FirstPurchaseDate", typeof(DateTime)); //Min of purchase date
+                    resultDataTable.Columns.Add("CumulativeUnits", typeof(decimal)); //PurchaseUnits
+                    resultDataTable.Columns.Add("CumulativeCost", typeof(decimal)); //ValueAtCost
+                    resultDataTable.Columns.Add("CurrentNAV", typeof(decimal));
+                    resultDataTable.Columns.Add("NAVDate", typeof(DateTime));
+                    resultDataTable.Columns.Add("CumulativeValue", typeof(decimal));
+                    resultDataTable.Columns.Add("TotalYearsInvested", typeof(decimal));
+                    resultDataTable.Columns.Add("TotalARR", typeof(decimal));
+                    resultDataTable.RowChanged += new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
+                    resultDataTable.Load(sqlite_datareader);
+                    resultDataTable.RowChanged -= new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("GetMFValuationBarGraph: " + exSQL.Message);
+                    if (resultDataTable != null)
+                    {
+                        resultDataTable.Clear();
+                        resultDataTable.Dispose();
+                        resultDataTable = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("GetMFValuationBarGraph: " + ex.Message);
+                    if (resultDataTable != null)
+                    {
+                        resultDataTable.Clear();
+                        resultDataTable.Dispose();
+                        resultDataTable = null;
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("GetMFValuationBarGraph: " + ex.Message);
+                if (resultDataTable != null)
+                {
+                    resultDataTable.Clear();
+                    resultDataTable.Dispose();
+                    resultDataTable = null;
+                }
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+            }
+
+            return resultDataTable;
+        }
+
+        private static void handlerMFValuationBarGraphRowChanged(object sender, DataRowChangeEventArgs e)
+        {
+            e.Row.Table.RowChanged -= new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
+
+            double currentNAV, valueAtCost, currentValue, yearsInvested, arr;
+            DateTime currentNAVdt, firstPurchaseNAVDt;
+            currentNAV = 0.00; currentValue = 0.00; yearsInvested = 0.00; arr = 0.00; valueAtCost = 0.00;
+            //currentNAVdt = DateTime.Today;
+            currentNAVdt = DateTime.MinValue;
+            //string fundName = e.Row["FundName"].ToString().Replace("'", "\'");
+
+            currentNAV = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["CurrentNAV"]));
+            currentNAVdt = System.Convert.ToDateTime(e.Row["NAVDate"].ToString());
+            firstPurchaseNAVDt = System.Convert.ToDateTime(e.Row["FirstPurchaseDate"].ToString());
+
+            currentValue = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["CumulativeValue"]));
+            valueAtCost = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["CumulativeCost"]));
+
+            try
+            {
+                yearsInvested = Math.Round(((currentNAVdt - firstPurchaseNAVDt).TotalDays) / 365.25, 4);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("openMFPortfolio: " + ex.Message);
+                yearsInvested = Math.Round(0.00, 4);
+            }
+
+            try
+            {
+                arr = Math.Round(0.00, 4);
+                if (yearsInvested > 0)
+                {
+                    arr = Math.Round(Math.Pow((currentValue / valueAtCost), (1 / yearsInvested)) - 1, 4);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("openMFPortfolio: " + ex.Message);
+                arr = Math.Round(0.00, 4);
+            }
+            //e.Row["FundName"] = fundName;
+            e.Row["TotalYearsInvested"] = string.Format("{0:0.0000}", yearsInvested);
+            e.Row["TotalARR"] = string.Format("{0:0.0000}", arr);
+
+            e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerMFValuationBarGraphRowChanged);
+        }
+
+        public static DataTable GetValuationLineGraph(string userId, string portfolioName, string portfolioId)
+        {
+            DataTable valuationTable = new DataTable();
+            DataTable portfolioSummaryTable;
+            DataTable portfolioTransactionTable;
+            DataTable navTable;
+
+            DateTime currentTxnDate;
+            DateTime nextTxnDate;
+            DateTime navDate;
+
+            double cumulativeQty = 0;
+            double cumulativeCost = 0;
+            double currentNAV = 0;
+            double currentVal = 0;
+
+            int navRowNum = 0;
+
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+
+            string statement;
+
+            try
+            {
+                //First get the schemes & their first & last purchase date & cumulative units
+                //statement = "SELECT SCHEMES.SCHEMECODE, SCHEMES.SCHEMENAME, min(strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE)) as FirstPurchaseDate, " +
+                statement = "SELECT SCHEMES.SCHEMECODE, SCHEMES.SCHEMENAME, min(PORTFOLIO.PURCHASE_DATE) as FirstPurchaseDate, " +
+                    //"max(strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE)) as LastPurchaseDate, sum(PORTFOLIO.PURCHASE_UNITS) as SUMUNITS FROM PORTFOLIO " +
+                    "max(PORTFOLIO.PURCHASE_DATE) as LastPurchaseDate, sum(PORTFOLIO.PURCHASE_UNITS) as SUMUNITS FROM PORTFOLIO " +
+                    "INNER JOIN SCHEMES ON SCHEMES.SCHEMECODE = PORTFOLIO.SCHEMECODE " +
+                    "WHERE PORTFOLIO.MASTER_ROWID = " + portfolioId +
+                    " GROUP BY PORTFOLIO.SCHEMECODE " +
+                    "ORDER BY PORTFOLIO.SCHEMECODE ASC, FirstPurchaseDate ASC";
+
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+                try
+                {
+                    sqlite_cmd.CommandText = statement;
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    portfolioSummaryTable = new DataTable();
+                    portfolioSummaryTable.Load(sqlite_datareader);
+                    sqlite_datareader.Close();
+
+                    //NOw we have name of each scheme & first purchase date
+                    //Now get transaction records for specific scheme
+                    foreach (DataRow summaryRow in portfolioSummaryTable.Rows)
+                    {
+                        //first get the NAV records for the current schemecode & navdate is >= summary rows First Purchase Date
+                        statement = "SELECT SCHEMES.SCHEMECODE AS SCHEME_CODE, SCHEMES.SCHEMENAME AS SCHEME_NAME, NAVRECORDS.NET_ASSET_VALUE as NET_ASSET_VALUE, " +
+                                    "strftime('%d-%m-%Y', NAVRECORDS.NAVDATE) as DATE from NAVRECORDS " +
+                                    "INNER JOIN SCHEMES ON NAVRECORDS.SCHEMECODE = SCHEMES.SCHEMECODE " +
+                                    "WHERE NAVRECORDS.SCHEMECODE = " + summaryRow["SCHEMECODE"] +
+                                    " AND NAVRECORDS.NAVDATE >= '" + summaryRow["FirstPurchaseDate"] + "'" +
+                                    " ORDER BY NAVRECORDS.NAVDATE ASC";
+                        sqlite_cmd.CommandText = statement;
+                        sqlite_datareader = sqlite_cmd.ExecuteReader();
+                        navTable = new DataTable();
+                        navTable.Columns.Add("SCHEME_CODE", typeof(string));
+                        navTable.Columns.Add("SCHEME_NAME", typeof(string));
+                        //Following columns are from NAVRECORDS
+                        navTable.Columns.Add("NET_ASSET_VALUE", typeof(decimal));
+                        navTable.Columns.Add("DATE", typeof(DateTime));
+                        //following comes from portfolio table
+                        navTable.Columns.Add("PurchaseDate", typeof(DateTime)); //PurchaseDate
+                        navTable.Columns.Add("PurchaseNAV", typeof(decimal)); //PurchaseNAV
+                        navTable.Columns.Add("PurchaseUnits", typeof(decimal)); //PurchaseUnits
+                        navTable.Columns.Add("ValueAtCost", typeof(decimal)); //ValueAtCost
+                                                                              //following are calculated
+                        navTable.Columns.Add("CumulativeUnits", typeof(decimal)); //CumulativeUnits
+                        navTable.Columns.Add("CumulativeCost", typeof(decimal)); //CumulativeCost
+                        navTable.Columns.Add("CurrentValue", typeof(decimal));
+                        navTable.Load(sqlite_datareader);
+                        sqlite_datareader.Close();
+                        //Now we have records from NAVRecords table for the current scheme & the NAV date >= first puchase date
+
+                        //now get the transaction records for the specific schemecode from portfolio table
+                        statement = "SELECT SCHEMES.SCHEMECODE, SCHEMES.SCHEMENAME, strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE) as PURCHASE_DATE, PORTFOLIO.PURCHASE_NAV, " +
+                                    "PORTFOLIO.PURCHASE_UNITS, PORTFOLIO.VALUE_AT_COST FROM SCHEMES " +
+                                    "INNER JOIN PORTFOLIO ON SCHEMES.SCHEMECODE = PORTFOLIO.SCHEMECODE " +
+                                    "WHERE PORTFOLIO.MASTER_ROWID = " + portfolioId + " AND PORTFOLIO.SCHEMECODE = " + summaryRow["SCHEMECODE"] +
+                                    " ORDER BY PORTFOLIO.SCHEMECODE ASC, PORTFOLIO.PURCHASE_DATE ASC";
+                        sqlite_cmd.CommandText = statement;
+                        sqlite_datareader = sqlite_cmd.ExecuteReader();
+                        portfolioTransactionTable = new DataTable();
+                        portfolioTransactionTable.Load(sqlite_datareader);
+                        sqlite_datareader.Close();
+
+                        navRowNum = 0;
+                        cumulativeQty = 0;
+                        cumulativeCost = 0;
+                        currentVal = 0;
+                        for (int txnRowNum = 0; txnRowNum < portfolioTransactionTable.Rows.Count; txnRowNum++)
+                        {
+                            currentTxnDate = System.Convert.ToDateTime(portfolioTransactionTable.Rows[txnRowNum]["PURCHASE_DATE"].ToString());
+                            if (txnRowNum + 1 >= portfolioTransactionTable.Rows.Count)
+                            {
+                                nextTxnDate = DateTime.Today;
+                            }
+                            else
+                            {
+                                nextTxnDate = System.Convert.ToDateTime(portfolioTransactionTable.Rows[txnRowNum + 1]["PURCHASE_DATE"].ToString());
+                            }
+
+                            cumulativeQty += System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["PURCHASE_UNITS"]);
+                            cumulativeCost += System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["VALUE_AT_COST"]);
+
+                            //navDate = System.Convert.ToDateTime(navTable.Rows[navRowNum]["DATE"].ToString());
+                            while((navRowNum < navTable.Rows.Count) && ((navDate = System.Convert.ToDateTime(navTable.Rows[navRowNum]["DATE"].ToString())) < nextTxnDate))
+                            {
+
+                                currentNAV = System.Convert.ToDouble(navTable.Rows[navRowNum]["NET_ASSET_VALUE"]);
+                                currentVal = cumulativeQty * currentNAV;
+
+                                navTable.Rows[navRowNum]["PurchaseDate"] = currentTxnDate;
+                                navTable.Rows[navRowNum]["PurchaseNAV"] = System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["PURCHASE_NAV"]);
+                                navTable.Rows[navRowNum]["PurchaseUnits"] = System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["PURCHASE_UNITS"]);
+                                navTable.Rows[navRowNum]["ValueAtCost"] = System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["VALUE_AT_COST"]);
+
+                                //Now fill the cumulative values
+                                navTable.Rows[navRowNum]["CumulativeUnits"] = cumulativeQty;
+                                navTable.Rows[navRowNum]["CumulativeCost"] = cumulativeCost;
+                                navTable.Rows[navRowNum]["CurrentValue"] = currentVal;
+
+                                navRowNum++;
+                            }
+                            //now we have added portfolio data to nav records table
+                        }
+                        //now we have complete portfolio data including cumulative values in the NAV records table
+                        //now merge the nav records table in valuation table
+
+                        valuationTable.Merge(navTable, true);
+
+                        //now clear the data tables;
+                        navTable.Rows.Clear();
+                        navTable.Clear();
+                        navTable.Dispose();
+                        navTable = null;
+
+                        portfolioTransactionTable.Rows.Clear();
+                        portfolioTransactionTable.Clear();
+                        portfolioTransactionTable.Dispose();
+                        portfolioTransactionTable = null;
+                    }
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("GetMFValuationLineGraph: " + exSQL.Message);
+                    if (valuationTable != null)
+                    {
+                        valuationTable.Clear();
+                        valuationTable.Dispose();
+                        valuationTable = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("GetMFValuationLineGraph: " + ex.Message);
+                    if (valuationTable != null)
+                    {
+                        valuationTable.Clear();
+                        valuationTable.Dispose();
+                        valuationTable = null;
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("GetMFValuationLineGraph: " + ex.Message);
+                if (valuationTable != null)
+                {
+                    valuationTable.Clear();
+                    valuationTable.Dispose();
+                    valuationTable = null;
+                }
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+            }
+            return valuationTable;
         }
 
         #endregion
 
-        static void TestLoadFromTo()
+        static public void TestLoadFromTo(DateTime dateFrom, DateTime dateTo)
         {
-            string fromDt = "2008-01-01";
-            string toDt = DateTime.Today.ToString("yyyy-MM-dd");
+            string fromDt = dateFrom.ToString("yyyy-MM-dd");
+            string toDt = dateTo.ToString("yyyy-MM-dd");
             DataTable fundhouseTable = getFundHouseTable();
             //foreach (DataRow row in fundhouseTable.Rows)
             for (int rownum = 33; rownum < fundhouseTable.Rows.Count; rownum++)
