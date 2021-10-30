@@ -38,8 +38,13 @@ namespace DataAccessLayer
         static string urlMF_NAV_HISTORY_FROM_TO = "http://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?mf={0}&frmdt={1}&todt={2}";
         static string urlMF_NAV_HISTORY_FROM = "http://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?mf={0}&frmdt={1}";
 
+        //Use folowwing URT to get NAV for FUNDHOUSE CODE, SCHEMETYEPE (1= open ended, 2 = Close Ended, 3 = Interval funds, From Date is mandatory, TO date is optional
+        //Output is - Scheme Code;Scheme Name;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Net Asset Value;Repurchase Price;Sale Price;Date
+        static string urlMF_TP_NAV_HISTORY_FROM_TO = "http://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?mf={0}&tp={1}&frmdt={2}&todt={3}";
+        static string urlMF_TP_NAV_HISTORY_FROM = "http://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx?mf={0}&tp={1}&frmdt={2}";
 
-        static string dbFile = ".\\portfolio\\MFData\\mfdata.db";
+        //static string dbFile = ".\\portfolio\\MFData\\mfdata.db";
+        static string dbFile = "mfdata.db";
         //static void Main(string[] args)
         //{
         //    dbFile = args[0];
@@ -56,10 +61,11 @@ namespace DataAccessLayer
         public SQLiteConnection CreateConnection()
         {
             SQLiteConnection sqlite_conn = null;
+            
             string sCurrentDir = AppDomain.CurrentDomain.BaseDirectory;
             string sFile = System.IO.Path.Combine(sCurrentDir, dbFile);
-            string sFilePath = Path.GetFullPath(sFile);
-
+            //string sFilePath = Path.GetFullPath(sFile);
+            string sFilePath = Path.GetPathRoot(sFile) + @"ProdDatabase\" + dbFile;
 
             // Create a new database connection:
             //sqlite_conn = new SQLiteConnection(@"Data Source= E:\MSFT_SampleWork\Analytics\portfolio\MFData\mfdata.db; " +
@@ -274,6 +280,141 @@ namespace DataAccessLayer
             Console.WriteLine("Method - getHistoryNAVForMFCode: " + recCounter + "records processed successfully");
             return true;
         }
+
+        public bool refreshNAVForMFCodeMFType(string mfCode, string mfType, string fromdt, string todt = null)
+        {
+            string webservice_url;
+            Uri url;
+            WebResponse wr;
+            Stream receiveStream = null;
+            StreamReader reader = null;
+            StringBuilder sourceFile;
+            long recCounter = 0;
+            DateTime dateFrom;
+            DateTime dateTo; ;
+
+            try
+            {
+
+                dateFrom = System.Convert.ToDateTime(fromdt);//System.Convert.ToDateTime(fromdt).ToString("yyyy-MM-dd");
+
+                if (todt != null)
+                {
+                    dateTo = System.Convert.ToDateTime(todt);//System.Convert.ToDateTime(todt).ToString("yyyy-MM-dd");
+                    webservice_url = string.Format(urlMF_TP_NAV_HISTORY_FROM_TO, mfCode, mfType, dateFrom.ToString("yyyy-MM-dd"), dateTo.ToString("yyyy-MM-dd"));
+                }
+                else
+                {
+                    webservice_url = string.Format(urlMF_TP_NAV_HISTORY_FROM, mfCode, mfType, dateFrom.ToString("yyyy-MM-dd"));
+                }
+                url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = WebRequestMethods.File.DownloadFile;
+                //webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+                if (reader != null)
+                {
+                    sourceFile = new StringBuilder(reader.ReadToEnd());
+
+                    if (reader != null)
+                        reader.Close();
+                    if (receiveStream != null)
+                        receiveStream.Close();
+
+                    recCounter = insertRecordInDB(sourceFile);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Method - refreshNAVForMFCodeMFType: " + "record processing failed with following error");
+                Console.WriteLine(ex.Message);
+                return false;
+            }
+            Console.WriteLine("Method - refreshNAVForMFCodeMFType: " + recCounter + "records processed successfully");
+            return true;
+        }
+
+        public bool refreshFromLastUpdate(int fundhousecode, int schemetypeid)
+        {
+            bool breturn = false;
+            DataTable returnTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+
+
+            string statement = "select FUNDHOUSE.FUNDHOUSECODE AS FUNDCODE, SCHEME_TYPE.TYPE_ID AS TYPEID, min(SCHEMES.TO_DATE) AS LASTUPDTDT from SCHEMES " +
+                "INNER JOIN SCHEME_TYPE ON SCHEMES.SCHEMETYPEID = SCHEME_TYPE.ROWID " +
+                "INNER JOIN FUNDHOUSE ON SCHEMES.FUNDHOUSECODE = FUNDHOUSE.FUNDHOUSECODE " +
+                "WHERE FUNDCODE = " + fundhousecode + " AND TYPEID = " + schemetypeid;
+
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = statement;
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    returnTable = new DataTable();
+                    returnTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("getSchemesTable: " + exSQL.Message);
+                    if (returnTable != null)
+                    {
+                        returnTable.Clear();
+                        returnTable.Dispose();
+                        returnTable = null;
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+
+                if ((returnTable != null) && (returnTable.Rows.Count > 0))
+                {
+                    breturn = refreshNAVForMFCodeMFType(fundhousecode.ToString(), schemetypeid.ToString(), returnTable.Rows[0]["LASTUPDTDT"].ToString(), DateTime.Today.ToString("yyyy-MM-dd"));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getSchemesTable: " + ex.Message);
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+                if (returnTable != null)
+                {
+                    returnTable.Clear();
+                    returnTable.Dispose();
+                    returnTable = null;
+                }
+
+            }
+            return breturn;
+        }
+
         #endregion
 
         #region insert methods
@@ -304,7 +445,7 @@ namespace DataAccessLayer
             StringBuilder recFormat2 = new StringBuilder("Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date");
             StringBuilder sCurrentSchemeName = new StringBuilder(string.Empty);
             StringBuilder sCurrentFundHouse = new StringBuilder(string.Empty);
-            DateTime dateStart = DateTime.Today, dateEnd = DateTime.Today;
+            //DateTime dateStart = DateTime.Today, dateEnd = DateTime.Today;
             DateTime dateNAV;
             StringBuilder fieldSeparator = new StringBuilder(";");
 
@@ -458,18 +599,18 @@ namespace DataAccessLayer
                             }
 
                             dateNAV = System.Convert.ToDateTime(navDate.ToString());
+
                             //Now check if scheme exists in SCHEMES table
-                            if ((sCurrentSchemeName.Equals(string.Empty)) ||
-                               (sCurrentSchemeName.Equals(schemeName) == false) ||
-                               (isSchemeExists(schemecode, sqlite_cmd).ToUpper().Equals(schemeName.ToString().ToUpper()) == false))
-                            //(schemeName.Equals(isSchemeExists(schemecode, sqlite_cmd)) == false))
+                            if (sCurrentSchemeName.Equals(schemeName) == false)
                             {
-                                //insert new scheme in schemes tables
-                                insertScheme(fundhousecode, schemetypeid, schemecode, schemeName.ToString(), dateNAV.ToString("yyyy-MM-dd"), dateNAV.ToString("yyyy-MM-dd"), sqlite_cmd);
-                                //System.Convert.ToDateTime(navDate).ToString("yyyy-MM-dd"), System.Convert.ToDateTime(navDate).ToString("yyyy-MM-dd"));
+                                if (isSchemeExists(schemecode, sqlite_cmd).ToUpper().Equals(schemeName.ToString().ToUpper()) == false)
+                                {
+                                    //insert new scheme in schemes tables
+                                    insertScheme(fundhousecode, schemetypeid, schemecode, schemeName.ToString(), dateNAV.ToString("yyyy-MM-dd"), dateNAV.ToString("yyyy-MM-dd"), sqlite_cmd);
+                                }
                                 sCurrentSchemeName = schemeName;
-                                dateStart = dateNAV;
-                                dateEnd = dateNAV;
+                                //dateStart = dateNAV;
+                                //dateEnd = dateNAV;
                                 //Console.WriteLine("Counter= " + recCounter + "Scheme code= " + schemecode + "--Scheme name= " + schemeName);
                             }
 
@@ -481,7 +622,6 @@ namespace DataAccessLayer
                     UpdateSchemeFromToDate(sqlite_cmd);
                     transaction.Commit();
                 }
-
             }
             catch (Exception ex)
             {
@@ -505,15 +645,34 @@ namespace DataAccessLayer
         public long insertSchemeType(string schemeType, SQLiteCommand sqlite_cmd)
         {
             long schemetypeid = -1;
+            string schemeCategory = "";
+            int type_id = -1;
             //SQLiteConnection sqlite_conn = null;
             //SQLiteCommand sqlite_cmd = null;
             try
             {
                 //sqlite_conn = CreateConnection();
                 //sqlite_cmd = sqlite_conn.CreateCommand();
-                sqlite_cmd.CommandText = "REPLACE INTO  SCHEME_TYPE(TYPE) VALUES (@TYPE)";
+                if (schemeType.Contains("Open Ended Schemes"))
+                {
+                    schemeCategory = "Open Ended Schemes";
+                    type_id = 1;
+                }
+                else if (schemeType.Contains("Close Ended Schemes"))
+                {
+                    schemeCategory = "Close Ended Schemes";
+                    type_id = 2;
+                }
+                else if (schemeType.Contains("Interval Fund Schemes"))
+                {
+                    schemeCategory = "Interval Fund Schemes";
+                    type_id = 3;
+                }
+                sqlite_cmd.CommandText = "REPLACE INTO  SCHEME_TYPE(TYPE, CATEGORY, TYPE_ID) VALUES (@TYPE, @CATEGORY, @TYPE_ID)";
                 sqlite_cmd.Prepare();
                 sqlite_cmd.Parameters.AddWithValue("@TYPE", schemeType);
+                sqlite_cmd.Parameters.AddWithValue("@CATEGORY", schemeCategory);
+                sqlite_cmd.Parameters.AddWithValue("@TYPE_ID", type_id);
 
                 try
                 {
@@ -840,6 +999,7 @@ namespace DataAccessLayer
         }
 
         #endregion
+
         #region get_methods
         /// <summary>
         /// Method to get predefined fundhouse code for given fundhouse/mf company value
@@ -1049,7 +1209,7 @@ namespace DataAccessLayer
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
                 var trancation = sqlite_conn.BeginTransaction();
-                sqlite_cmd.CommandText = "SELECT ROWID, TYPE FROM SCHEME_TYPE";
+                sqlite_cmd.CommandText = "SELECT ROWID, TYPE, CATEGORY, TYPE_ID FROM SCHEME_TYPE";
                 try
                 {
                     sqlite_datareader = sqlite_cmd.ExecuteReader();
@@ -1762,6 +1922,27 @@ namespace DataAccessLayer
             return breturn;
         }
 
+        static public DateTime getNextSIPDate(DateTime sourcedt, int dayofmonth, string frequency)
+        {
+            DateTime returnDt;// = new DateTime(sourcedt.AddMonths(1).Year, sourcedt.AddMonths(1).Month, 1);
+
+            if ((frequency.Equals("Daily")) || (frequency.Equals("Weekly")))
+            {
+                returnDt = sourcedt.AddDays(dayofmonth);
+            }
+            else
+            {
+                returnDt = new DateTime(sourcedt.AddMonths(1).Year, sourcedt.AddMonths(1).Month, 1);
+                returnDt = returnDt.AddDays(dayofmonth - 1);
+            }
+
+            while ((returnDt.DayOfWeek == DayOfWeek.Saturday) || (returnDt.DayOfWeek == DayOfWeek.Sunday))
+            {
+                returnDt = returnDt.AddDays(1);
+            }
+            return returnDt;
+        }
+
         public int getNextSIPDurationCounter(string frequency)
         {
             int returnCounter = 0;
@@ -1777,6 +1958,7 @@ namespace DataAccessLayer
             else
             {
                 returnCounter = 30;
+
             }
 
             return returnCounter;
@@ -1793,6 +1975,7 @@ namespace DataAccessLayer
             double valueAtCost = System.Convert.ToDouble(monthlyContribution);
             double purchaseNAV;
             //long portfolioId = -1;
+            DateTime transDt;
 
             SQLiteConnection sqlite_conn = null;
             SQLiteCommand sqlite_cmd = null;
@@ -1823,22 +2006,49 @@ namespace DataAccessLayer
                     try
                     {
                         //portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
-
-                        for (int rownum = 0; rownum < datewiseData.Rows.Count; rownum += getNextSIPDurationCounter(sipFrequency))
+                        for (DateTime dt = fromDt; dt <= System.Convert.ToDateTime(datewiseData.Rows[datewiseData.Rows.Count - 1]["NAVDATE"]); dt = getNextSIPDate(dt, Int32.Parse(monthday), sipFrequency))
                         {
-                            purchaseNAV = System.Convert.ToDouble(datewiseData.Rows[rownum]["NET_ASSET_VALUE"]);
-
-                            purchaseUnits = 0.00;
-                            if (purchaseNAV > 0)
+                            transDt = dt;
+                            do
                             {
-                                purchaseUnits = Math.Round((valueAtCost / purchaseNAV), 4);
+                                datewiseData.DefaultView.RowFilter = "NAVDATE = '" + transDt.ToShortDateString() + "'";
+                                if (datewiseData.DefaultView.Count > 0)
+                                {
+                                    break;
+                                }
+                                transDt = transDt.AddDays(1);
+                            } while (transDt <= System.Convert.ToDateTime(datewiseData.Rows[datewiseData.Rows.Count - 1]["NAVDATE"]));
+                            if (datewiseData.DefaultView.Count > 0)
+                            {
+                                purchaseNAV = System.Convert.ToDouble(datewiseData.DefaultView[0]["NET_ASSET_VALUE"]);
+                                purchaseUnits = 0.00;
+                                if (purchaseNAV > 0)
+                                {
+                                    purchaseUnits = Math.Round((valueAtCost / purchaseNAV), 4);
+                                }
+                                addNewTransaction(userId, portfolioName, schemeCode,
+                                    datewiseData.DefaultView[0]["NAVDATE"].ToString(),
+                                    string.Format("{0:0.0000}", purchaseNAV),
+                                    string.Format("{0:0.0000}", purchaseUnits), string.Format("{0:0.0000}", valueAtCost), portfolioRowId, sqlite_cmd: sqlite_cmd);
+
                             }
-                            //string.Format("{0:0.0000}", fields[4])
-                            addNewTransaction(userId, portfolioName, schemeCode,
-                                datewiseData.Rows[rownum]["NAVDATE"].ToString(),
-                                string.Format("{0:0.0000}", purchaseNAV),
-                                string.Format("{0:0.0000}", purchaseUnits), string.Format("{0:0.0000}", valueAtCost), portfolioRowId, sqlite_cmd: sqlite_cmd);
                         }
+
+                        //for (int rownum = 0; rownum < datewiseData.Rows.Count; rownum += getNextSIPDurationCounter(sipFrequency))
+                        //{
+                        //    purchaseNAV = System.Convert.ToDouble(datewiseData.Rows[rownum]["NET_ASSET_VALUE"]);
+
+                        //    purchaseUnits = 0.00;
+                        //    if (purchaseNAV > 0)
+                        //    {
+                        //        purchaseUnits = Math.Round((valueAtCost / purchaseNAV), 4);
+                        //    }
+                        //    //string.Format("{0:0.0000}", fields[4])
+                        //    addNewTransaction(userId, portfolioName, schemeCode,
+                        //        datewiseData.Rows[rownum]["NAVDATE"].ToString(),
+                        //        string.Format("{0:0.0000}", purchaseNAV),
+                        //        string.Format("{0:0.0000}", purchaseUnits), string.Format("{0:0.0000}", valueAtCost), portfolioRowId, sqlite_cmd: sqlite_cmd);
+                        //}
                         breturn = true;
                     }
                     catch (Exception ex)
@@ -1918,7 +2128,7 @@ namespace DataAccessLayer
                     }
                     catch (SQLiteException exSQL)
                     {
-                        Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + exSQL.Message);
+                        Console.WriteLine("deletePortfolioRow: [" + userId + "," + portfolioName + "] " + exSQL.Message);
                     }
                 }
                 transaction.Commit();
@@ -1994,7 +2204,7 @@ namespace DataAccessLayer
                     }
                     catch (SQLiteException exSQL)
                     {
-                        Console.WriteLine("deletePortfolio: [" + userId + "," + portfolioName + "] " + exSQL.Message);
+                        Console.WriteLine("updateTransaction: [" + userId + "," + portfolioName + "] " + exSQL.Message);
                     }
                 }
                 transaction.Commit();
@@ -2040,21 +2250,22 @@ namespace DataAccessLayer
                 portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
                 if (portfolioId > 0)
                 {
-                    sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID";
-                    sqlite_cmd.Prepare();
-                    sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
                     try
                     {
+                        sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID";
+                        sqlite_cmd.Prepare();
+                        sqlite_cmd.Parameters.AddWithValue("@MASTER_ROW_ID", portfolioId);
+                        //if (sqlite_cmd.ExecuteNonQuery() > 0)
+                        //{
+                        sqlite_cmd.Reset();
+                        sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO_MASTER WHERE ROWID = @MASTER_ROW_ID";
+                        sqlite_cmd.Prepare();
+                        sqlite_cmd.Parameters.AddWithValue("@MASTER_ROW_ID", portfolioId);
                         if (sqlite_cmd.ExecuteNonQuery() > 0)
                         {
-                            sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID";
-                            sqlite_cmd.Prepare();
-                            sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
-                            if (sqlite_cmd.ExecuteNonQuery() > 0)
-                            {
-                                breturn = true;
-                            }
+                            breturn = true;
                         }
+                        //}
                     }
                     catch (SQLiteException exSQL)
                     {
@@ -2100,7 +2311,8 @@ namespace DataAccessLayer
                                "INNER JOIN PORTFOLIO ON PORTFOLIO.SCHEMECODE = SCHEMES.SCHEMECODE " +
                                "INNER JOIN FUNDHOUSE ON FUNDHOUSE.FUNDHOUSECODE = SCHEMES.FUNDHOUSECODE " +
                                "INNER JOIN NAVRECORDS ON NAVRECORDS.SCHEMECODE = SCHEMES.SCHEMECODE " +
-                               "WHERE NAVRECORDS.NAVDATE = SCHEMES.TO_DATE AND PORTFOLIO.MASTER_ROWID = " + portfolioRowId;
+                               "WHERE NAVRECORDS.NAVDATE = SCHEMES.TO_DATE AND PORTFOLIO.MASTER_ROWID = " + portfolioRowId +
+                               " ORDER BY SCHEMES.FUNDHOUSECODE ASC, SCHEMES.SCHEMECODE ASC, PORTFOLIO.PURCHASE_DATE ASC";
 
             try
             {
@@ -2521,7 +2733,7 @@ namespace DataAccessLayer
                             cumulativeCost += System.Convert.ToDouble(portfolioTransactionTable.Rows[txnRowNum]["VALUE_AT_COST"]);
 
                             //navDate = System.Convert.ToDateTime(navTable.Rows[navRowNum]["DATE"].ToString());
-                            while((navRowNum < navTable.Rows.Count) && ((navDate = System.Convert.ToDateTime(navTable.Rows[navRowNum]["DATE"].ToString())) < nextTxnDate))
+                            while ((navRowNum < navTable.Rows.Count) && ((navDate = System.Convert.ToDateTime(navTable.Rows[navRowNum]["DATE"].ToString())) < nextTxnDate))
                             {
 
                                 currentNAV = System.Convert.ToDouble(navTable.Rows[navRowNum]["NET_ASSET_VALUE"]);
@@ -2630,6 +2842,19 @@ namespace DataAccessLayer
                 {
                     getHistoryNAVForMFCode(row["FUNDHOUSECODE"].ToString(), fromdt: fromDt, todt: toDt);
                 }
+            }
+        }
+
+        public void UpdateNAVFromLastFetchDate()
+        {
+            DataTable fundhouseTable = getFundHouseTable();
+            foreach (DataRow fundRow in fundhouseTable.Rows)
+            {
+                for (int type_id = 1; type_id < 4; type_id++)
+                {
+                    refreshFromLastUpdate(Int32.Parse(fundRow["FUNDHOUSECODE"].ToString()), type_id);
+                }
+
             }
         }
     }
