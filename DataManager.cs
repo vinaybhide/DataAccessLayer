@@ -61,7 +61,7 @@ namespace DataAccessLayer
         public SQLiteConnection CreateConnection()
         {
             SQLiteConnection sqlite_conn = null;
-            
+
             string sCurrentDir = AppDomain.CurrentDomain.BaseDirectory;
             string sFile = System.IO.Path.Combine(sCurrentDir, dbFile);
             //string sFilePath = Path.GetFullPath(sFile);
@@ -1548,10 +1548,236 @@ namespace DataAccessLayer
             return returnTable;
         }
 
-        public DataTable getRSIDataTableFromDailyNAV(int schemecode = -1, string fromDate = null, string toDate = null, string period = "20")
+        /// <summary>
+        ///we can take the previous sum, subtract the oldest value, and add the new value. That gives us the new sum, which we can divide by 3 to get the SMA. 
+        /// </summary>
+        /// <param name="schemecode"></param>
+        /// <param name="fromDate"></param>
+        /// <param name="toDate"></param>
+        /// <param name="smallPeriod"></param>
+        /// <param name="longPeriod"></param>
+        /// <returns>daily NAV table with SMA values and cross over flag = true if small sma > long sma else false</returns>
+        public DataTable getSMATable(int schemecode, string fromDate = null, string toDate = null, int smallPeriod = 10, int longPeriod = -1)
         {
             DataTable dailyTable = null;
-            DataTable rsiDataTable = null;
+            try
+            {
+                dailyTable = getNAVRecordsTable(schemecode, fromDate, toDate);
+                if ((dailyTable != null) && (dailyTable.Rows.Count > 0))
+                {
+                    DataColumn newCol = new DataColumn("SMA_SMALL", typeof(decimal));
+                    newCol.DefaultValue = 0;
+                    dailyTable.Columns.Add(newCol);
+
+                    if (longPeriod > 0)
+                    {
+                        newCol = new DataColumn("SMA_LONG", typeof(decimal));
+                        newCol.DefaultValue = 0;
+                        dailyTable.Columns.Add(newCol);
+
+                        newCol = new DataColumn("CROSSOVER_FLAG", typeof(string));
+                        newCol.DefaultValue = "LT";
+                        dailyTable.Columns.Add(newCol);
+                    }
+                    double currentNavValue = 0;
+                    double smallSMA = 0;
+                    double longSMA = 0;
+
+                    double sumSmall = 0;
+                    double[] valuesSmall = new double[smallPeriod]; //array of NAV for the current iteration
+                    int indexSmall = 0; //we will increment it till specifid period and then reset it to 0
+
+                    double sumLong = 0;
+                    double[] valuesLong = (longPeriod > 0) ? new double[longPeriod] : null;
+                    int indexLong = 0;
+
+                    for (int i = 0; i < dailyTable.Rows.Count; i++)
+                    {
+                        currentNavValue = System.Convert.ToDouble(dailyTable.Rows[i]["NET_ASSET_VALUE"]);
+                        //subtract the oldest NAV from the previous SUM and then add the current NAV
+                        sumSmall = sumSmall - valuesSmall[indexSmall] + currentNavValue;//System.Convert.ToDouble(dailyTable.Rows[i]["NET_ASSET_VALUE"]);
+                        valuesSmall[indexSmall] = currentNavValue; //System.Convert.ToDouble(dailyTable.Rows[i]["NET_ASSET_VALUE"]);
+
+                        dailyTable.Rows[i]["SMA_SMALL"] = smallSMA = sumSmall / smallPeriod;
+                        indexSmall = (indexSmall + 1) % smallPeriod;
+                        if (longPeriod > 0)
+                        {
+                            sumLong = sumLong - valuesLong[indexLong] + currentNavValue;  //System.Convert.ToDouble(dailyTable.Rows[i]["NET_ASSET_VALUE"]);
+                            valuesLong[indexLong] = currentNavValue; //System.Convert.ToDouble(dailyTable.Rows[i]["NET_ASSET_VALUE"]);
+                            dailyTable.Rows[i]["SMA_LONG"] = longSMA = sumLong / longPeriod;
+                            indexLong = (indexLong + 1) % longPeriod;
+
+                            dailyTable.Rows[i]["CROSSOVER_FLAG"] = (smallSMA > longSMA) ? "GT" : "LT"; 
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getSMAFromDailyNAV exception: " + ex.Message);
+
+                if (dailyTable != null)
+                {
+                    dailyTable.Clear();
+                    dailyTable.Dispose();
+                }
+                dailyTable = null;
+            }
+            return dailyTable;
+        }
+        /// <summary>
+        /// From the golden cross-over point, we look ahead buyspan number of rows. If all the rows from current row till buyspan have smallsma > longsma 
+        /// and if the row after buyspan is smallsma < longsma, then the current row is marked for BUY
+        /// If the current row is marked for BUY then row after sellspan is marked for SELL
+        /// 
+        /// For each row in DAILY NAV table
+        ///     if cross-over = true (ie smallSMA > longSMA, in case smallSMA < longSMA then the value is false)
+        ///         check if ALL of the next 'buySpan' number of rows cross-over is true and if yes
+        ///             check if the value of corss-over for current row + buyspanrow + 1 is false
+        ///                 if it is then 
+        ///                     we can mark current rows BUY-FLAG = true
+        ///                     we can mark the row at current row + sellspan SELL-FLAG = true
+        ///                
+        ///  General logic for backtest strategy for buy & sell (assumming buy span = 2 & sell span = 20):
+        ///     First find the small & long sma for each day
+        ///     If small sma is > long sma then we mark that row as true else false
+        ///     for each row that is marked as true
+        ///         find if next two row's are also marked as true, if yes
+        ///             then find if the 3rd row is false (meaning small sma < long sma), if yes then
+        ///                 mark the 3rd row with false value as 'BUY'
+        ///                 mark the 20th row from current row as 'SELL'
+        ///             
+        /// </summary>
+        /// <param name="schemecode"></param>
+        /// <param name="fromDate"></param>
+        /// <param name="toDate"></param>
+        /// <param name="smallPeriod"></param>
+        /// <param name="longPeriod"></param>
+        /// <param name="buySpan">number of rows to check from current row where each rows smallSMA is greater than longSMA</param>
+        /// <param name="sellSpan">number of rows after current row where we can mark SELL if all conditions are satisfied</param>
+        /// <returns></returns>
+        public DataTable getBacktestFromSMA(int schemecode, string fromDate = null, string toDate = null, int smallPeriod = 10, int longPeriod = 20, int buySpan = 2, int sellSpan = 20,
+                                            double simulationQty = 100)
+        {
+            DataTable dailyTable = null;
+            double buyNAV = 0.00, sellNAV = 0.00;
+            double buyCost = 0.00;
+            double sellValue = 0.00;
+            double profit_loss = 0.00;
+            StringBuilder resultString = new StringBuilder();
+            try
+            {
+                dailyTable = getSMATable(schemecode, fromDate, toDate, smallPeriod, longPeriod);
+                if ((dailyTable != null) && (dailyTable.Rows.Count > 0))
+                {
+                    DataColumn newCol = new DataColumn("BUY_FLAG", typeof(bool));
+                    newCol.DefaultValue = false;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("SELL_FLAG", typeof(bool));
+                    newCol.DefaultValue = false;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("QUANTITY", typeof(double));
+                    newCol.DefaultValue = 0.00;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("BUY_COST", typeof(double));
+                    newCol.DefaultValue = 0.00;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("SELL_VALUE", typeof(double));
+                    newCol.DefaultValue = 0.00;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("PROFIT_LOSS", typeof(double));
+                    newCol.DefaultValue = 0.00;
+                    dailyTable.Columns.Add(newCol);
+
+                    newCol = new DataColumn("RESULT", typeof(string));
+                    newCol.DefaultValue = "";
+                    dailyTable.Columns.Add(newCol);
+
+                    bool bBuyFlag;
+                    //get small sma
+                    for (int i = 0; i < dailyTable.Rows.Count; i++)
+                    {
+                        //if smallSMA > longSMA
+                        if (((dailyTable.Rows[i]["CROSSOVER_FLAG"]).ToString().Equals("GT") == true) && ((i + buySpan) < dailyTable.Rows.Count))
+                        {
+                            bBuyFlag = true;
+                            //first check if all the next buySpan rows[CROSSOVER_FLAF] = true
+                            for (int crossindex = i + 1; crossindex <= (i + buySpan); crossindex++)
+                            {
+                                if ((dailyTable.Rows[crossindex]["CROSSOVER_FLAG"]).ToString().Equals("GT") == false)
+                                {
+                                    bBuyFlag = false;
+                                    break;
+                                }
+                            }
+                            //if buyflag is true that means we have all the current row to buyspan row's crossover_flag = true
+                            //now check if crossover_flag for next index after buyspan index is false and if it is then it is our 'BUY' flag = true state
+                            //first check if we are not going over the table rows
+                            if (((i + buySpan + 1) < dailyTable.Rows.Count) && (bBuyFlag == true))
+                            {
+                                if ((dailyTable.Rows[i + buySpan + 1]["CROSSOVER_FLAG"]).ToString().Equals("GT") == false)
+                                {
+                                    buyNAV = System.Convert.ToDouble(dailyTable.Rows[i + buySpan + 1]["NET_ASSET_VALUE"]);
+                                    buyCost = simulationQty * buyNAV;
+
+                                    //set start point
+                                    dailyTable.Rows[i]["CROSSOVER_FLAG"] = "X";
+
+                                    //set crossover point for buy
+                                    dailyTable.Rows[i + buySpan + 1]["BUY_FLAG"] = true;
+                                    dailyTable.Rows[i + buySpan + 1]["QUANTITY"] = simulationQty;
+                                    dailyTable.Rows[i + buySpan + 1]["BUY_COST"] =  buyCost ;
+
+                                    if ((i + sellSpan) < dailyTable.Rows.Count)
+                                    {
+                                        //set sell point
+                                        sellNAV = System.Convert.ToDouble(dailyTable.Rows[i + sellSpan]["NET_ASSET_VALUE"]);
+                                        sellValue = simulationQty * sellNAV;
+                                        profit_loss = sellValue - buyCost;
+
+                                        dailyTable.Rows[i + sellSpan]["QUANTITY"] = simulationQty;
+                                        dailyTable.Rows[i + sellSpan]["SELL_FLAG"] = true;
+                                        dailyTable.Rows[i + sellSpan]["SELL_VALUE"] = sellValue;
+                                        dailyTable.Rows[i + sellSpan]["PROFIT_LOSS"] = profit_loss;
+
+                                        resultString.AppendLine("BUY Date: " + dailyTable.Rows[i + buySpan + 1]["NAVDATE"]);
+                                        resultString.AppendLine("BUY NAV: " + buyNAV);
+                                        resultString.AppendLine("BUY Cost: " + buyCost);
+                                        resultString.AppendLine("SELL Date: " + dailyTable.Rows[i + sellSpan]["NAVDATE"]);
+                                        resultString.AppendLine("SELL NAV: " + sellNAV);
+                                        resultString.AppendLine("SELL Value: " + sellValue);
+                                        resultString.AppendLine((profit_loss < 0 ? "Loss of: " : "Profit of: ") + profit_loss);
+                                        dailyTable.Rows[i + sellSpan]["RESULT"] = resultString.ToString();
+                                        resultString.Clear();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getSMAFromDailyNAV exception: " + ex.Message);
+
+                if (dailyTable != null)
+                {
+                    dailyTable.Clear();
+                    dailyTable.Dispose();
+                }
+                dailyTable = null;
+            }
+            return dailyTable;
+        }
+        public DataTable getRSIDataTableFromDailyNAV(int schemecode, string fromDate = null, string toDate = null, string period = "14")
+        {
+            DataTable dailyTable = null;
+            //DataTable rsiDataTable = null;
             int iPeriod;
             double change, gain, loss, avgGain = 0.00, avgLoss = 0.00, rs, rsi;
             double sumOfGain = 0.00, sumOfLoss = 0.00;
@@ -1563,12 +1789,16 @@ namespace DataAccessLayer
                 if ((dailyTable != null) && (dailyTable.Rows.Count > 0))
                 {
                     iPeriod = System.Convert.ToInt32(period);
-                    rsiDataTable = new DataTable();
+                    //rsiDataTable = new DataTable();
 
-                    rsiDataTable.Columns.Add("SCHEMECODE", typeof(long));
-                    rsiDataTable.Columns.Add("SCHEMENAME", typeof(string));
-                    rsiDataTable.Columns.Add("Date", typeof(DateTime));
-                    rsiDataTable.Columns.Add("RSI", typeof(decimal));
+                    //rsiDataTable.Columns.Add("SCHEMECODE", typeof(long));
+                    //rsiDataTable.Columns.Add("SCHEMENAME", typeof(string));
+                    //rsiDataTable.Columns.Add("Date", typeof(DateTime));
+                    //rsiDataTable.Columns.Add("RSI", typeof(decimal));
+                    DataColumn newCol = new DataColumn("RSI", typeof(decimal));
+                    newCol.DefaultValue = 0.00;
+
+                    dailyTable.Columns.Add(newCol);
 
                     //Strat from 1st row in dailyTable and sum all the "seriestype" column upto "period"
                     //SMA = divide the sum by "period"
@@ -1597,34 +1827,38 @@ namespace DataAccessLayer
                             sumOfGain += gain;
                             sumOfLoss += loss;
                         }
-                        else if (rownum == iPeriod)
-                        {
-                            sumOfGain += gain;
-                            sumOfLoss += loss;
-                            //we also find  other fields and SAVE
-                            avgGain = sumOfGain / iPeriod;
-                            avgLoss = sumOfLoss / iPeriod;
-                            rs = avgGain / avgLoss;
-                            rsi = 100 - (100 / (1 - rs));
-                            rsiDataTable.Rows.Add(new object[] {
-                                                                    schemecode,
-                                                                    dailyTable.Rows[rownum]["SCHEMENAME"].ToString(),
-                                                                    dateCurrentRow.ToString("dd-MM-yyyy"),
-                                                                    Math.Round(rsi, 4)
-                                                                });
-                        }
                         else
                         {
-                            avgGain = ((avgGain * (iPeriod - 1)) + gain) / iPeriod;
-                            avgLoss = ((avgLoss * (iPeriod - 1)) + loss) / iPeriod;
-                            rs = avgGain / avgLoss;
-                            rsi = 100 - (100 / (1 - rs));
-                            rsiDataTable.Rows.Add(new object[] {
-                                                                    schemecode,
-                                                                    dailyTable.Rows[rownum]["SCHEMENAME"].ToString(),
-                                                                    dateCurrentRow.ToString("dd-MM-yyyy"),
-                                                                    Math.Round(rsi, 4)
-                                                                });
+                            if (rownum == iPeriod)
+                            {
+                                sumOfGain += gain;
+                                sumOfLoss += loss;
+                                //we also find  other fields and SAVE
+                                avgGain = sumOfGain / iPeriod;
+                                avgLoss = sumOfLoss / iPeriod;
+                                rs = avgGain / avgLoss;
+                                rsi = 100 - (100 / (1 - rs));
+                                //rsiDataTable.Rows.Add(new object[] {
+                                //                                    schemecode,
+                                //                                    dailyTable.Rows[rownum]["SCHEMENAME"].ToString(),
+                                //                                    dateCurrentRow.ToString("dd-MM-yyyy"),
+                                //                                    Math.Round(rsi, 4)
+                                //                                });
+                            }
+                            else
+                            {
+                                avgGain = ((avgGain * (iPeriod - 1)) + gain) / iPeriod;
+                                avgLoss = ((avgLoss * (iPeriod - 1)) + loss) / iPeriod;
+                                rs = avgGain / avgLoss;
+                                rsi = 100 - (100 / (1 - rs));
+                                //rsiDataTable.Rows.Add(new object[] {
+                                //                                    schemecode,
+                                //                                    dailyTable.Rows[rownum]["SCHEMENAME"].ToString(),
+                                //                                    dateCurrentRow.ToString("dd-MM-yyyy"),
+                                //                                    Math.Round(rsi, 4)
+                                //                                });
+                            }
+                            dailyTable.Rows[rownum]["RSI"] = Math.Round(rsi, 4);
                         }
                     }
                 }
@@ -1633,20 +1867,14 @@ namespace DataAccessLayer
             {
                 Console.WriteLine("getRSIDataTableFromDailyNAV exception: " + ex.Message);
 
-                if (rsiDataTable != null)
+                if (dailyTable != null)
                 {
-                    rsiDataTable.Clear();
-                    rsiDataTable.Dispose();
+                    dailyTable.Clear();
+                    dailyTable.Dispose();
                 }
-                rsiDataTable = null;
+                dailyTable = null;
             }
-            if (dailyTable != null)
-            {
-                dailyTable.Clear();
-                dailyTable.Dispose();
-            }
-            dailyTable = null;
-            return rsiDataTable;
+            return dailyTable;
         }
         #endregion
 
@@ -2305,7 +2533,7 @@ namespace DataAccessLayer
             SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null; ;
             SQLiteCommand sqlite_cmd = null;
-            string statement = "SELECT PORTFOLIO.ROWID AS ID, FUNDHOUSE.NAME as FundHouse, SCHEMES.SCHEMENAME as FundName, SCHEMES.SCHEMECODE as SCHEME_CODE, " +
+            string statement = "SELECT PORTFOLIO.ROWID AS ID, FUNDHOUSE.FUNDHOUSECODE as FundHouseCode, FUNDHOUSE.NAME as FundHouse, SCHEMES.SCHEMENAME as FundName, SCHEMES.SCHEMECODE as SCHEME_CODE, " +
                                "strftime('%d-%m-%Y', PORTFOLIO.PURCHASE_DATE) AS PurchaseDate, PORTFOLIO.PURCHASE_NAV as PurchaseNAV, PORTFOLIO.PURCHASE_UNITS as PurchaseUnits, " +
                                "PORTFOLIO.VALUE_AT_COST as ValueAtCost, NAVRECORDS.NET_ASSET_VALUE AS CurrentNAV, strftime('%d-%m-%Y', NAVRECORDS.NAVDATE) as NAVDate from SCHEMES " +
                                "INNER JOIN PORTFOLIO ON PORTFOLIO.SCHEMECODE = SCHEMES.SCHEMECODE " +
@@ -2331,6 +2559,7 @@ namespace DataAccessLayer
                     resultDataTable = new DataTable();
                     //FundHouse;FundName;SCHEME_CODE;PurchaseDate;PurchaseNAV;PurchaseUnits;ValueAtCost
                     resultDataTable.Columns.Add("ID", typeof(long)); //FundHouse
+                    resultDataTable.Columns.Add("FundHouseCode", typeof(int)); //FundHouse
                     resultDataTable.Columns.Add("FundHouse", typeof(string)); //FundHouse
                     resultDataTable.Columns.Add("FundName", typeof(string)); //FundName
                     resultDataTable.Columns.Add("SCHEME_CODE", typeof(string)); //SCHEME_CODE
