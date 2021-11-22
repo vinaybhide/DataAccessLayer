@@ -336,7 +336,7 @@ namespace DataAccessLayer
             return true;
         }
 
-        public bool refreshFromLastUpdate(int fundhousecode, int schemetypeid)
+        public bool refreshFromLastUpdate(int fundhousecode, int fundhouseid)
         {
             bool breturn = false;
             DataTable returnTable = null;
@@ -348,7 +348,7 @@ namespace DataAccessLayer
             string statement = "select FUNDHOUSE.FUNDHOUSECODE AS FUNDCODE, SCHEME_TYPE.TYPE_ID AS TYPEID, min(SCHEMES.TO_DATE) AS LASTUPDTDT from SCHEMES " +
                 "INNER JOIN SCHEME_TYPE ON SCHEMES.SCHEMETYPEID = SCHEME_TYPE.ROWID " +
                 "INNER JOIN FUNDHOUSE ON SCHEMES.FUNDHOUSECODE = FUNDHOUSE.FUNDHOUSECODE " +
-                "WHERE FUNDCODE = " + fundhousecode + " AND TYPEID = " + schemetypeid;
+                "WHERE FUNDCODE = " + fundhousecode + " AND TYPEID = " + fundhouseid;
 
             try
             {
@@ -378,7 +378,7 @@ namespace DataAccessLayer
 
                 if ((returnTable != null) && (returnTable.Rows.Count > 0))
                 {
-                    breturn = refreshNAVForMFCodeMFType(fundhousecode.ToString(), schemetypeid.ToString(), returnTable.Rows[0]["LASTUPDTDT"].ToString(), DateTime.Today.ToString("yyyy-MM-dd"));
+                    breturn = refreshNAVForMFCodeMFType(fundhousecode.ToString(), fundhouseid.ToString(), returnTable.Rows[0]["LASTUPDTDT"].ToString(), DateTime.Today.ToString("yyyy-MM-dd"));
                 }
             }
             catch (Exception ex)
@@ -1607,7 +1607,7 @@ namespace DataAccessLayer
                             dailyTable.Rows[i]["SMA_LONG"] = longSMA = sumLong / longPeriod;
                             indexLong = (indexLong + 1) % longPeriod;
 
-                            dailyTable.Rows[i]["CROSSOVER_FLAG"] = (smallSMA > longSMA) ? "GT" : "LT"; 
+                            dailyTable.Rows[i]["CROSSOVER_FLAG"] = (smallSMA > longSMA) ? "GT" : "LT";
                         }
                     }
                 }
@@ -1731,7 +1731,7 @@ namespace DataAccessLayer
                                     //set crossover point for buy
                                     dailyTable.Rows[i + buySpan + 1]["BUY_FLAG"] = true;
                                     dailyTable.Rows[i + buySpan + 1]["QUANTITY"] = simulationQty;
-                                    dailyTable.Rows[i + buySpan + 1]["BUY_COST"] =  buyCost ;
+                                    dailyTable.Rows[i + buySpan + 1]["BUY_COST"] = buyCost;
 
                                     if ((i + sellSpan) < dailyTable.Rows.Count)
                                     {
@@ -2318,7 +2318,7 @@ namespace DataAccessLayer
             return breturn;
         }
 
-        public bool deletePortfolioRow(string userId, string portfolioName, string portfolioRowId, string schemeCode, string purchaseDate, string purchaseNAV, string purchaseUnits, string valueAtCost)
+        public bool deletePortfolioRow(string portfolioRowId)
         {
             bool breturn = false;
             SQLiteConnection sqlite_conn = null;
@@ -2331,33 +2331,18 @@ namespace DataAccessLayer
                 sqlite_cmd = sqlite_conn.CreateCommand();
                 var transaction = sqlite_conn.BeginTransaction();
 
-                //portfolioId = getPortfolioId(portfolioName, userId, sqlite_cmd);
-                //portfolioId = System.Convert.ToInt64(portfolioRowId);
-                //if (portfolioId > 0)
+                sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE ROWID = " + portfolioRowId;
+
+                try
                 {
-                    sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE ROWID = " + portfolioRowId;
-
-                    //sqlite_cmd.CommandText = "DELETE FROM PORTFOLIO WHERE MASTER_ROWID = @MASTER_ROW_ID AND SCHEMECODE = @SCHEMECODE AND PURCHASE_DATE = @PURCHASE_DATE AND PURCHASE_NAV = @PURCHASE_NAV " +
-                    //                        "AND PURCHASE_UNITS = @PURCHASE_UNITS AND VALUE_AT_COST = @VALUE_AT_COST";
-
-                    //sqlite_cmd.Prepare();
-                    //sqlite_cmd.Parameters.AddWithValue("@MASTER_ROWID", portfolioId);
-                    //sqlite_cmd.Parameters.AddWithValue("@SCHEMECODE", schemeCode);
-                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_DATE", System.Convert.ToDateTime(purchaseDate).ToString("yyyy-MM-dd"));
-                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_NAV", string.Format("{0:0:0000}", purchaseNAV));
-                    //sqlite_cmd.Parameters.AddWithValue("@PURCHASE_UNITS", string.Format("{0:0.0000}", purchaseUnits));
-                    //sqlite_cmd.Parameters.AddWithValue("@VALUE_AT_COST", string.Format("{0:0.0000}", valueAtCost));
-                    try
+                    if (sqlite_cmd.ExecuteNonQuery() > 0)
                     {
-                        if (sqlite_cmd.ExecuteNonQuery() > 0)
-                        {
-                            breturn = true;
-                        }
+                        breturn = true;
                     }
-                    catch (SQLiteException exSQL)
-                    {
-                        Console.WriteLine("deletePortfolioRow: [" + userId + "," + portfolioName + "] " + exSQL.Message);
-                    }
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("deletePortfolioRow: [" + portfolioRowId + "] " + exSQL.Message);
                 }
                 transaction.Commit();
                 transaction.Dispose();
