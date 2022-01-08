@@ -34,7 +34,7 @@ namespace DataAccessLayer
             string sCurrentDir = AppDomain.CurrentDomain.BaseDirectory;
             string sFile = System.IO.Path.Combine(sCurrentDir, dbFile);
             //string sFilePath = Path.GetFullPath(sFile);
-            string sDataFolder = Path.GetPathRoot(sFile) + @"ProdDatabase\";
+            string sDataFolder = Path.GetPathRoot(sFile) + @"ProdDatabase\StockDataFiles\";
 
             return sDataFolder;
         }
