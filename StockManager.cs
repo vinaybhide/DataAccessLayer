@@ -32,6 +32,137 @@ namespace DataAccessLayer
 
         #region online menthods
 
+        public Root getIndexIntraDayAlternate(string scriptName, string time_interval = "5min", string outputsize = "full")
+        {
+            Root myDeserializedClass = null;
+            try
+            {
+                string webservice_url = "";
+                WebResponse wr;
+                Stream receiveStream = null;
+                StreamReader reader = null;
+                string convertedScriptName;
+                string range, interval;
+                var errors = new List<string>();
+
+                if (time_interval == "60min")
+                {
+                    interval = "60m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "2y";
+                    }
+
+                }
+                else if (time_interval == "1min")
+                {
+                    interval = "1m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "7d";
+                    }
+
+                }
+                else if (time_interval == "15min")
+                {
+                    interval = "15m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+
+                }
+                else if (time_interval == "30min")
+                {
+                    interval = "30m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+
+                }
+                else //if(time_interval == "60min")
+                {
+                    interval = "5m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+                }
+
+                webservice_url = string.Format(urlGetStockData, scriptName, range, interval, indicators, includeTimestamps);
+
+                Uri url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = "GET";
+                webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+
+                myDeserializedClass = JsonConvert.DeserializeObject<Root>(reader.ReadToEnd(), new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore,
+                    DefaultValueHandling = DefaultValueHandling.Populate,
+                    Error = delegate (object sender, Newtonsoft.Json.Serialization.ErrorEventArgs args)
+                    {
+                        errors.Add(args.ErrorContext.Error.Message);
+                        args.ErrorContext.Handled = true;
+                        //args.ErrorContext.Handled = false;
+                    }
+                    //Converters = { new IsoDateTimeConverter() }
+
+                });
+
+                //Chart myChart = myDeserializedClass.chart;
+
+                //Result myResult = myChart.result[0];
+
+                //Meta myMeta = myResult.meta;
+
+                //Indicators myIndicators = myResult.indicators;
+
+                ////this will be typically only 1 row and quote will have list of close, high, low, open, volume
+                //Quote myQuote = myIndicators.quote[0];
+
+                ////this will be typically only 1 row and adjClose will have list of adjClose
+                //Adjclose myAdjClose = null;
+                //if (bIsDaily)
+                //{
+                //    myAdjClose = myIndicators.adjclose[0];
+                //}
+
+                reader.Close();
+                if (receiveStream != null)
+                    receiveStream.Close();
+            }
+            catch (Exception ex)
+            {
+                myDeserializedClass = null;
+            }
+            return myDeserializedClass;
+        }
+
         /// <summary>
         /// Method to fetch stock master data from NSE and then store in SQLite table
         /// The url returns comma separated recrods with first record is the field descriptor as shown below
@@ -102,37 +233,40 @@ namespace DataAccessLayer
                         }
                         fields = record.ToString().Split(',');
 
-                        //sqlite_cmd.CommandText = "REPLACE INTO STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, " +
+                        InsertNewStock(fields[0] + "." + "NS", "NSI", fields[1], "EQUITY", System.Convert.ToDateTime(fields[3]).ToString("yyyy-MM-dd"), fields[4],
+                            fields[5], fields[6], fields[7], dateToday, sqlite_cmd: sqlite_cmd);
+
+                        ////sqlite_cmd.CommandText = "REPLACE INTO STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, " +
+                        ////    "MARKET_LOT, ISIN_NUMBER, FACE_VALUE, LASTUPDT) " +
+                        ////    "VALUES (@EXCHANGE, @SYMBOL, @COMP_NAME, @SERIES, @DATE_OF_LISTING, @PAID_UP_VALUE, @MARKET_LOT, @ISIN_NUMBER, @FACE_VALUE, @LASTUPDT)";
+
+                        ////Adding IGNORE INTO skips the insert if there are any conflict related to primary key unique or other constraints without raising errors
+                        //sqlite_cmd.CommandText = "INSERT  OR IGNORE INTO STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, " +
                         //    "MARKET_LOT, ISIN_NUMBER, FACE_VALUE, LASTUPDT) " +
                         //    "VALUES (@EXCHANGE, @SYMBOL, @COMP_NAME, @SERIES, @DATE_OF_LISTING, @PAID_UP_VALUE, @MARKET_LOT, @ISIN_NUMBER, @FACE_VALUE, @LASTUPDT)";
 
-                        //Adding IGNORE INTO skips the insert if there are any conflict related to primary key unique or other constraints without raising errors
-                        sqlite_cmd.CommandText = "INSERT  OR IGNORE INTO STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, " +
-                            "MARKET_LOT, ISIN_NUMBER, FACE_VALUE, LASTUPDT) " +
-                            "VALUES (@EXCHANGE, @SYMBOL, @COMP_NAME, @SERIES, @DATE_OF_LISTING, @PAID_UP_VALUE, @MARKET_LOT, @ISIN_NUMBER, @FACE_VALUE, @LASTUPDT)";
-                            
-                        //You can use INSERT INTO table(columns) values(..,..) ON CONFLICT DO NOTHING";
+                        ////You can use INSERT INTO table(columns) values(..,..) ON CONFLICT DO NOTHING";
 
-                        sqlite_cmd.Prepare();
-                        sqlite_cmd.Parameters.AddWithValue("@EXCHANGE", exchangeCode);
-                        sqlite_cmd.Parameters.AddWithValue("@SYMBOL", fields[0]);
-                        sqlite_cmd.Parameters.AddWithValue("@COMP_NAME", fields[1]);
-                        sqlite_cmd.Parameters.AddWithValue("@SERIES", fields[2]);
-                        sqlite_cmd.Parameters.AddWithValue("@DATE_OF_LISTING", System.Convert.ToDateTime(fields[3]).ToString("yyyy-MM-dd"));
-                        sqlite_cmd.Parameters.AddWithValue("@PAID_UP_VALUE", fields[4]);
-                        sqlite_cmd.Parameters.AddWithValue("@MARKET_LOT", fields[5]);
-                        sqlite_cmd.Parameters.AddWithValue("@ISIN_NUMBER", fields[6]);
-                        sqlite_cmd.Parameters.AddWithValue("@FACE_VALUE", fields[7]);
-                        sqlite_cmd.Parameters.AddWithValue("@LASTUPDT", dateToday);
-                        try
-                        {
-                            numOfRowsInserted += sqlite_cmd.ExecuteNonQuery();
-                        }
-                        catch (SQLiteException sqlException)
-                        {
-                            Console.WriteLine(sqlException.Message);
-                            break;
-                        }
+                        //sqlite_cmd.Prepare();
+                        //sqlite_cmd.Parameters.AddWithValue("@EXCHANGE", exchangeCode);
+                        //sqlite_cmd.Parameters.AddWithValue("@SYMBOL", fields[0]);
+                        //sqlite_cmd.Parameters.AddWithValue("@COMP_NAME", fields[1]);
+                        //sqlite_cmd.Parameters.AddWithValue("@SERIES", fields[2]);
+                        //sqlite_cmd.Parameters.AddWithValue("@DATE_OF_LISTING", System.Convert.ToDateTime(fields[3]).ToString("yyyy-MM-dd"));
+                        //sqlite_cmd.Parameters.AddWithValue("@PAID_UP_VALUE", fields[4]);
+                        //sqlite_cmd.Parameters.AddWithValue("@MARKET_LOT", fields[5]);
+                        //sqlite_cmd.Parameters.AddWithValue("@ISIN_NUMBER", fields[6]);
+                        //sqlite_cmd.Parameters.AddWithValue("@FACE_VALUE", fields[7]);
+                        //sqlite_cmd.Parameters.AddWithValue("@LASTUPDT", dateToday);
+                        //try
+                        //{
+                        //    numOfRowsInserted += sqlite_cmd.ExecuteNonQuery();
+                        //}
+                        //catch (SQLiteException sqlException)
+                        //{
+                        //    Console.WriteLine(sqlException.Message);
+                        //    break;
+                        //}
                     }
                     transaction.Commit();
                 }
@@ -166,6 +300,11 @@ namespace DataAccessLayer
         public DataTable getQuoteTableFromJSON(string record, string symbol)
         {
             DataTable resultDataTable = null;
+
+            if (record.ToUpper().Contains("NOT FOUND"))
+            {
+                return null;
+            }
             DateTime myDate;
             double close;
             double high;
@@ -328,6 +467,49 @@ namespace DataAccessLayer
             return resultDataTable;
         }
 
+        public bool InsertStockFromJSON(string record, string symbol, SQLiteCommand sqlite_cmd = null)
+        {
+            bool bReturn = true;
+
+            if (record.ToUpper().Contains("NOT FOUND"))
+            {
+                return false;
+            }
+            var errors = new List<string>();
+            try
+            {
+                Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(record, new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore,
+                    DefaultValueHandling = DefaultValueHandling.Populate,
+                    Error = delegate (object sender, Newtonsoft.Json.Serialization.ErrorEventArgs args)
+                    {
+                        errors.Add(args.ErrorContext.Error.Message);
+                        args.ErrorContext.Handled = true;
+                        //args.ErrorContext.Handled = false;
+                    }
+                    //Converters = { new IsoDateTimeConverter() }
+
+                });
+
+                Chart myChart = myDeserializedClass.chart;
+
+                Result myResult = myChart.result[0];
+
+                Meta myMeta = myResult.meta;
+                if (myMeta != null)
+                {
+                    bReturn = InsertNewStock(myMeta.symbol, myMeta.exchangeName, myMeta.symbol, myMeta.instrumentType, sqlite_cmd: sqlite_cmd);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                bReturn = false;
+            }
+            return bReturn;
+        }
+
         /// <summary>
         /// Method to fetch quote for given symbol + exchange combinations using range = 1m inerval = 1m parameters
         /// It will call yahoo quote url and get JSON as output
@@ -377,6 +559,56 @@ namespace DataAccessLayer
         }
 
         /// <summary>
+        /// Finds current quote from yahoo finance for the given symbol
+        /// If found inserts the symbol into STOCKMASTER using symbol, exchangename and instrumenttype
+        /// </summary>
+        /// <param name="symbol"></param>
+        /// <param name="sqlite_cmd"></param>
+        /// <returns>return datatable containing SYMBOL, EXCHANGE, COMP_NAME or null</returns>
+        public DataTable InsertNewStockIfNotFoundInDB(string symbol, SQLiteCommand sqlite_cmd = null)
+        {
+            DataTable resultDataTable = null;
+            try
+            {
+                string webservice_url = "";
+                WebResponse wr;
+                Stream receiveStream = null;
+                StreamReader reader = null;
+                //DataRow r;
+
+                //https://query1.finance.yahoo.com/v7/finance/chart/HDFC.BO?range=1m&interval=1m&indicators=quote&timestamp=true
+                webservice_url = string.Format(StockManager.urlGlobalQuote, symbol);
+
+                Uri url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = "GET";
+                webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+                string stockdata = reader.ReadToEnd();
+                reader.Close();
+                if (receiveStream != null)
+                    receiveStream.Close();
+
+                if (InsertStockFromJSON(stockdata, symbol, sqlite_cmd))
+                {
+                    resultDataTable = SearchStock(symbol, sqlite_cmd: sqlite_cmd);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                if (resultDataTable != null)
+                {
+                    resultDataTable.Clear();
+                    resultDataTable.Dispose();
+                }
+                resultDataTable = null;
+            }
+            return resultDataTable;
+        }
+        /// <summary>
         /// Method to fetch stock historic or current price & volume data and return the JSON data in StingBuilder
         /// </summary>
         /// <param name="scriptname">Symbol of the script with exchange code, BAJAJ.NS or BAJAJ.BO</param>
@@ -396,6 +628,7 @@ namespace DataAccessLayer
             StreamReader reader = null;
             try
             {
+                //https://query1.finance.yahoo.com/v7/finance/chart/HDFC.BO?range=2yr&interval=1d&indicators=quote&includeTimestamps=true
                 webservice_url = string.Format(StockManager.urlGetStockData, scriptname, range, interval, indicators, includeTimestamps);
 
                 Uri url = new Uri(webservice_url);
@@ -431,7 +664,6 @@ namespace DataAccessLayer
                                                     string time_interval = "1d", SQLiteCommand sqlite_cmd = null)
         {
             bool breturn = true;
-            string convertedScriptName;
             DateTime datetimeMaxTimestamp;// = time_interval.Contains("m") ? DateTime.Now : DateTime.Today;
             DateTime datetimeToday; //= time_interval.Contains("m") ? DateTime.Now : DateTime.Today;
             string range;
@@ -445,10 +677,10 @@ namespace DataAccessLayer
 
             try
             {
-                if(time_interval.Contains("m"))
+                if (time_interval.Contains("m"))
                 {
                     //means we need to get time interval data
-                    datetimeToday = System.Convert.ToDateTime( DateTime.Today.ToShortDateString() + " 09:15:00");
+                    datetimeToday = DateTime.Now;
                     datetimeMaxTimestamp = System.Convert.ToDateTime(DateTime.Today.ToShortDateString() + " 09:15:00");
                 }
                 else
@@ -457,31 +689,7 @@ namespace DataAccessLayer
                     datetimeToday = DateTime.Today;
                     datetimeMaxTimestamp = DateTime.Today;
                 }
-                //we need to do this as yahoo idenitifies indian stocks by appending .exchangecode to stock symbol
-                //convertedScriptName = scriptname.Split('.')[0];
-                //if (exchangeName.Equals("BSE"))
-                //{
-                //    convertedScriptName = convertedScriptName + ".BO";
-                //}
-                //else if (exchangeName.Equals("NSE"))
-                //{
-                //    convertedScriptName = convertedScriptName + ".NS";
-                //}
-                //else
-                //{
-                //    convertedScriptName = scriptname;
-                //}
 
-                //if(exchangeName.Equals(string.Empty))
-                if (exchangeName == string.Empty)
-                {
-                    //this is the case when this method is called to get index data
-                    convertedScriptName = scriptname;
-                }
-                else
-                {
-                    convertedScriptName = scriptname + "." + exchangeName;
-                }
                 if (sqlite_cmd == null)
                 {
                     sqlite_conn = CreateConnection();
@@ -526,41 +734,18 @@ namespace DataAccessLayer
                                 }
                                 else
                                 {
-                                    range = "1d";
+                                    //range = "1d";
+                                    range = diffSpan.Minutes.ToString() + "m";
                                 }
                             }
                             //we need to fetch data starting from lasttimestamp. We need to send converted script name with either .NS or .BO
-                            StringBuilder sbStockData = FetchStockDataOnline(convertedScriptName, range, time_interval, indicators, true);
+                            StringBuilder sbStockData = FetchStockDataOnline(scriptname, range, time_interval, indicators, true);
                             if (sbStockData != null)
                             {
                                 breturn = InsertStockData(sbStockData, scriptname, exchangeName, equitytype, time_interval, sqlite_cmd);
                             }
                         }
                     }
-                    //var tsObject = sqlite_cmd.ExecuteScalar();
-
-                    //if (tsObject.ToString().Equals("") == false)
-                    //{
-                    //    //that means there is data
-                    //    datetimeMaxTimestamp = System.Convert.ToDateTime(tsObject);
-
-                    //    //we want to check if the lasttimestamp in DB is same as today or not
-                    //    //compare returns < 0 if dt1 earlier than dt2, =0 if dt1 = dt2, > 0 dt1 later than dt2
-
-                    //    compare = DateTime.Compare(datetimeMaxTimestamp, datetimeToday);
-                    //}
-
-                    //if (compare < 0)
-                    //{
-                    //    TimeSpan diffSpan = datetimeToday - datetimeMaxTimestamp;
-                    //    //this gives us diff in days:hour:min:sec
-
-
-                    //    range = GetRange(time_interval, outputsize);
-                    //    //we need to fetch data starting from lasttimestamp. We need to send converted script name with either .NS or .BO
-                    //    StringBuilder sbStockData = FetchStockDataOnline(convertedScriptName, range, time_interval, indicators, true);
-                    //    breturn = InsertStockData(sbStockData, scriptname, exchangeName, equitytype, time_interval, sqlite_cmd);
-                    //}
                 }
                 catch (SQLiteException exSQL)
                 {
@@ -632,19 +817,19 @@ namespace DataAccessLayer
             return sqlite_conn;
         }
 
-        public DataTable SearchStock(string symbol, string exchangeCode = "")
+        public DataTable GetExchangeList()
         {
             DataTable returnTable = null;
             SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null; ;
             SQLiteCommand sqlite_cmd = null;
-
+            SQLiteTransaction transaction = null;
             try
             {
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
-                var transaction = sqlite_conn.BeginTransaction();
-                sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "' AND EXCHANGE = '" + exchangeCode + "'";
+                transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = "SELECT DISTINCT(EXCHANGE) FROM STOCKMASTER";
                 try
                 {
                     sqlite_datareader = sqlite_cmd.ExecuteReader();
@@ -653,7 +838,7 @@ namespace DataAccessLayer
                 }
                 catch (SQLiteException exSQL)
                 {
-                    Console.WriteLine("getStockMaster: " + exSQL.Message);
+                    Console.WriteLine("GetExchangeList: " + exSQL.Message);
                     if (returnTable != null)
                     {
                         returnTable.Clear();
@@ -661,16 +846,25 @@ namespace DataAccessLayer
                         returnTable = null;
                     }
                 }
-                transaction.Commit();
-                transaction.Dispose();
-                transaction = null;
             }
             catch (Exception ex)
             {
-                Console.WriteLine("getFundHouseTable: " + ex.Message);
+                Console.WriteLine("getStockMaster: " + ex.Message);
+                if (returnTable != null)
+                {
+                    returnTable.Clear();
+                    returnTable.Dispose();
+                    returnTable = null;
+                }
             }
             finally
             {
+                if (transaction != null)
+                {
+                    transaction.Commit();
+                    transaction.Dispose();
+                    transaction = null;
+                }
                 if (sqlite_datareader != null)
                 {
                     sqlite_datareader.Close();
@@ -688,6 +882,151 @@ namespace DataAccessLayer
                 sqlite_conn = null;
                 sqlite_datareader = null;
                 sqlite_cmd = null;
+                transaction = null;
+            }
+            return returnTable;
+        }
+
+        public bool InsertNewStock(string symbol, string exchange, string company = "", string series = "EQ", string dateoflisting = "", string paidupvalue = "",
+            string marketlot = "", string isinnumber = "", string facevalue = "", string lastupdt = "", SQLiteCommand sqlite_cmd = null)
+        {
+            bool bReturn = true;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteTransaction transaction = null;
+
+            try
+            {
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
+                try
+                {
+                    sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, MARKET_LOT, ISIN_NUMBER, " +
+                        "FACE_VALUE, LASTUPDT) " +
+                   "VALUES (@EXCHANGE, @SYMBOL, @COMP_NAME, @SERIES, @DATE_OF_LISTING, @PAID_UP_VALUE, @MARKET_LOT, @ISIN_NUMBER, @FACE_VALUE, @LASTUPDT) ";
+                    //"ON CONFLICT DO NOTHING";
+
+                    sqlite_cmd.Prepare();
+                    sqlite_cmd.Parameters.AddWithValue("@EXCHANGE", exchange);
+                    sqlite_cmd.Parameters.AddWithValue("@SYMBOL", symbol);
+                    sqlite_cmd.Parameters.AddWithValue("@COMP_NAME", company);
+                    sqlite_cmd.Parameters.AddWithValue("@SERIES", series);
+                    sqlite_cmd.Parameters.AddWithValue("@DATE_OF_LISTING", dateoflisting);
+                    sqlite_cmd.Parameters.AddWithValue("@PAID_UP_VALUE", paidupvalue);
+                    sqlite_cmd.Parameters.AddWithValue("@MARKET_LOT", marketlot);
+                    sqlite_cmd.Parameters.AddWithValue("@ISIN_NUMBER", isinnumber);
+                    sqlite_cmd.Parameters.AddWithValue("@FACE_VALUE", facevalue);
+                    sqlite_cmd.Parameters.AddWithValue("@LASTUPDT", lastupdt);
+
+                    sqlite_cmd.ExecuteNonQuery();
+
+                }
+                catch (SQLiteException sqlEx)
+                {
+                    Console.WriteLine("Error in InserNewExchange :" + sqlEx.Message);
+                    bReturn = false;
+                }
+                finally
+                {
+                    if (sqlite_conn != null)
+                    {
+                        if (transaction != null)
+                        {
+                            transaction.Commit();
+                            transaction.Dispose();
+                        }
+                        if (sqlite_cmd != null)
+                        {
+                            sqlite_cmd.Dispose();
+                        }
+
+                        sqlite_conn.Close();
+                        sqlite_conn.Dispose();
+                        transaction = null;
+                        sqlite_cmd = null;
+                        sqlite_conn = null;
+                    }
+                }
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error in InsertNewExchange: " + ex.Message);
+                bReturn = false;
+            }
+            return bReturn;
+        }
+
+        public DataTable SearchStock(string symbol, string exchangeCode = "", SQLiteCommand sqlite_cmd = null)
+        {
+            DataTable returnTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteTransaction transaction = null;
+            //SQLiteCommand sqlite_cmd = null;
+
+            try
+            {
+                if (sqlite_cmd == null)
+                {
+                    sqlite_conn = CreateConnection();
+                    sqlite_cmd = sqlite_conn.CreateCommand();
+                    transaction = sqlite_conn.BeginTransaction();
+                }
+                if ((exchangeCode.Equals(string.Empty)) || (exchangeCode.Equals("-1")))
+                {
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "'";
+
+                }
+                else
+                {
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "' AND EXCHANGE = '" + exchangeCode + "'";
+
+                }
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    returnTable = new DataTable();
+                    returnTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("searchStock: " + exSQL.Message);
+                    if (returnTable != null)
+                    {
+                        returnTable.Clear();
+                        returnTable.Dispose();
+                        returnTable = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getFundHouseTable: " + ex.Message);
+            }
+            finally
+            {
+                if (sqlite_conn != null)
+                {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                    }
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
+
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                    transaction = null;
+                    sqlite_cmd = null;
+                    sqlite_conn = null;
+                }
             }
             return returnTable;
         }
@@ -704,7 +1043,16 @@ namespace DataAccessLayer
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
                 var transaction = sqlite_conn.BeginTransaction();
-                sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE EXCHANGE = '" + exchangeCode + "'";
+
+                if ((exchangeCode.Equals(string.Empty)) || (exchangeCode.Equals("-1")))
+                {
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER";
+                }
+                else
+                {
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE EXCHANGE = '" + exchangeCode + "'";
+                }
+
                 try
                 {
                     sqlite_datareader = sqlite_cmd.ExecuteReader();
@@ -758,7 +1106,7 @@ namespace DataAccessLayer
             return returnTable;
         }
 
-        public bool InsertStockData(StringBuilder record, string symbol, string exchangename = "", string type = "EQ", string time_interval = "1d",
+        public bool InsertStockData(StringBuilder record, string symbol, string exchangename = "", string type = "EQUITY", string time_interval = "1d",
             SQLiteCommand sqlite_cmd = null)
         {
             bool breturn = true;
@@ -889,12 +1237,12 @@ namespace DataAccessLayer
 
                             sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  STOCKDATA(SYMBOL, EXCHANGENAME, TYPE, DATA_GRANULARITY, OPEN, HIGH, LOW, CLOSE, ADJ_CLOSE, VOLUME, TIMESTAMP) " +
                            "VALUES (@SYMBOL, @EXCHANGENAME, @TYPE, @DATA_GRANULARITY, @OPEN, @HIGH, @LOW, @CLOSE, @ADJ_CLOSE, @VOLUME, @TIMESTAMP) ";
-                           //"ON CONFLICT DO NOTHING";
+                            //"ON CONFLICT DO NOTHING";
 
                             sqlite_cmd.Prepare();
-                            sqlite_cmd.Parameters.AddWithValue("@SYMBOL", symbol);
-                            sqlite_cmd.Parameters.AddWithValue("@EXCHANGENAME", exchangename);
-                            sqlite_cmd.Parameters.AddWithValue("@TYPE", type);
+                            sqlite_cmd.Parameters.AddWithValue("@SYMBOL", myMeta.symbol); //symbol);
+                            sqlite_cmd.Parameters.AddWithValue("@EXCHANGENAME", myMeta.exchangeName);// exchangename);
+                            sqlite_cmd.Parameters.AddWithValue("@TYPE", myMeta.instrumentType); // type);
                             sqlite_cmd.Parameters.AddWithValue("@DATA_GRANULARITY", time_interval);
                             sqlite_cmd.Parameters.AddWithValue("@OPEN", open);
                             sqlite_cmd.Parameters.AddWithValue("@HIGH", high);
@@ -978,7 +1326,7 @@ namespace DataAccessLayer
             SQLiteConnection sqlite_conn = null;
             SQLiteDataReader sqlite_datareader = null; ;
             SQLiteTransaction transaction = null;
-            
+
             try
             {
                 //first check if we have latest data in DB if not fetch it
@@ -1020,8 +1368,9 @@ namespace DataAccessLayer
                             //sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + DateTime.Today.ToString("yyyy-MM-dd HH:mm:ss") + "' ";
                             sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + DateTime.Today.ToString("yyyy-MM-dd") + " 09:00:00' ";
                         }
+                        sqlite_cmd.CommandText += " AND TIMESTAMP <= '" + System.Convert.ToDateTime(fromDate).ToString("yyyy-MM-dd") + " 23:59:00' ";
                     }
-                    if (exchangename != string.Empty)
+                    if ((exchangename != string.Empty) && (exchangename.Equals("-1") == false))
                     {
                         sqlite_cmd.CommandText += " AND EXCHANGENAME = '" + exchangename + "' ";
                     }
@@ -1349,7 +1698,7 @@ namespace DataAccessLayer
                             for (subrownum = rownum; ((subrownum < (rownum + small_fast_Period)) && (subrownum < dailyTable.Rows.Count)); subrownum++)
                             {
                                 currentClosePrice = System.Convert.ToDouble(dailyTable.Rows[subrownum][seriestype]);
-                                 //= System.Convert.ToDateTime(dailyTable.Rows[subrownum]["Date"]);
+                                //= System.Convert.ToDateTime(dailyTable.Rows[subrownum]["Date"]);
 
                                 tmpM = M;
                                 M += (currentClosePrice - tmpM) / k;
@@ -1470,7 +1819,7 @@ namespace DataAccessLayer
                                 macd = System.Convert.ToDouble(dailyTable.Rows[rownum]["EMA_SMALL"]) - System.Convert.ToDouble(dailyTable.Rows[rownum]["EMA_LONG"]);
                                 listMACD.Add(macd);
 
-                                if (rownum >= ((signalperiod + long_slow_Period)- 1))
+                                if (rownum >= ((signalperiod + long_slow_Period) - 1))
                                 {
                                     signal = FindSignal(rownum, signalperiod, long_slow_Period, listMACD, signal);
                                     histogram = macd - signal;
@@ -1684,7 +2033,7 @@ namespace DataAccessLayer
                         newCol.DefaultValue = 0.00;
 
                         dailyTable.Columns.Add(newCol);
-                        seriesNameList = new List<string>{ seriestype};
+                        seriesNameList = new List<string> { seriestype };
                     }
                     else
                     {
@@ -1705,7 +2054,7 @@ namespace DataAccessLayer
 
                         dailyTable.Columns.Add(newCol);
 
-                        seriesNameList = new List<string>{ "CLOSE", "OPEN", "HIGH", "LOW"};
+                        seriesNameList = new List<string> { "CLOSE", "OPEN", "HIGH", "LOW" };
                     }
                     foreach (var item in seriesNameList)
                     {
@@ -1918,13 +2267,13 @@ namespace DataAccessLayer
 
                             minusDMPeriod = FindNegativeDM_Period(rownum, iPeriod, listMinusDM1, listMinusDMPeriod);
                             listMinusDMPeriod.Add(minusDMPeriod);
-                            
+
                             plusDIPeriod = FindPositveDI_Period(rownum, iPeriod, listTRPeriod, listPlusDMPeriod);
                             listPlusDIPeriod.Add(plusDIPeriod);
-                            
+
                             minusDIPeriod = FindNegativeDI_Period(rownum, iPeriod, listTRPeriod, listMinusDMPeriod);
                             listMinusDIPeriod.Add(minusDIPeriod);
-                            
+
                             dx = FindDX(rownum, iPeriod, listPlusDIPeriod, listMinusDIPeriod);
                             listDX.Add(dx);
 
@@ -1943,7 +2292,7 @@ namespace DataAccessLayer
                             dailyTable.Rows[rownum]["MINUS_DI"] = Math.Round(minusDIPeriod, 2);
                         }
                     }
-                    
+
                 }
             }
             catch (Exception ex)
@@ -2061,7 +2410,7 @@ namespace DataAccessLayer
             return dailyTable;
         }
 
-        public DataTable getAROONDataTableFromDaily(string symbol, string exchange, string seriestype = "CLOSE", string outputsize = "Compact", 
+        public DataTable getAROONDataTableFromDaily(string symbol, string exchange, string seriestype = "CLOSE", string outputsize = "Compact",
             string time_interval = "1d", string fromDate = null, int period = 20)
         {
             DataTable dailyTable = null;
@@ -2380,7 +2729,7 @@ namespace DataAccessLayer
         {
             double multiplier = (2 / ((double)signalperiod + 1));
             double signal = 0.00;
-            if (rownum == ((signalperiod + long_slow_Period )- 1))
+            if (rownum == ((signalperiod + long_slow_Period) - 1))
             {
                 signal = (listMACD.GetRange(0, signalperiod)).Average();
             }
@@ -2950,7 +3299,7 @@ namespace DataAccessLayer
         /// <param name="portfolioMasterRowId"></param>
         /// <returns></returns>
 
-        public DataTable GetPortfolio_ValuationLineGraph(string portfolioMasterId, string interval="1d")
+        public DataTable GetPortfolio_ValuationLineGraph(string portfolioMasterId, string interval = "1d")
         {
             DataTable valuationTable = null;
             DataTable portfolioSummaryTable;
@@ -3434,7 +3783,8 @@ namespace DataAccessLayer
                 firstPurchaseDate = System.Convert.ToDateTime(e.Row["PURCHASE_DATE"].ToString());
                 lastPurchaseDate = System.Convert.ToDateTime(sourceTable.Rows[rowIndex]["PURCHASE_DATE"].ToString());
 
-                DataTable quoteTable = GetQuote(e.Row["SYMBOL"].ToString() + "." + e.Row["EXCHANGE"].ToString());
+                //DataTable quoteTable = GetQuote(e.Row["SYMBOL"].ToString() + "." + e.Row["EXCHANGE"].ToString());
+                DataTable quoteTable = GetQuote(e.Row["SYMBOL"].ToString());
                 if (quoteTable != null)
                 {
                     currentPrice = System.Convert.ToDouble(string.Format("{0:0.00}", quoteTable.Rows[0]["price"].ToString()));

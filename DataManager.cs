@@ -119,7 +119,6 @@ namespace DataAccessLayer
             StreamReader reader = null;
             StringBuilder sourceFile;
             long recCounter = 0;
-            DateTime dateMinLastFetch;
             try
             {
                 //https://www.amfiindia.com/spages/NAVAll.txt;
@@ -2659,7 +2658,7 @@ namespace DataAccessLayer
                                " ORDER BY SCHEMES.FUNDHOUSECODE ASC, SCHEMES.SCHEMECODE ASC, PORTFOLIO.PURCHASE_DATE ASC";
             try
             {
-                //updateNAVForPortfolio(portfolioMasterRowId);
+                updateNAVForPortfolio(portfolioMasterRowId);
 
                 sqlite_conn = CreateConnection();
                 sqlite_cmd = sqlite_conn.CreateCommand();
