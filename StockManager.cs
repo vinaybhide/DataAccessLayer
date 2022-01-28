@@ -8,6 +8,8 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml;
+
 namespace DataAccessLayer
 {
     public class StockManager
@@ -30,6 +32,10 @@ namespace DataAccessLayer
         //https://query1.finance.yahoo.com/v8/finance/chart/HDFC.BO?range=1d&interval=1d&indicators=quote&timestamp=true
         public static string urlGlobalQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?range=1d&interval=1d&indicators=quote&timestamp=true";
 
+        //https://finance.yahoo.com/lookup/index?s=all
+        //https://finance.yahoo.com/lookup/all?s=proctor
+        //https://finance.yahoo.com/lookup/all?s=larsen
+        public static string urlSearch = "https://finance.yahoo.com/lookup/{0}?s={1}";
         #region online menthods
 
         public Root getIndexIntraDayAlternate(string scriptName, string time_interval = "5min", string outputsize = "full")
@@ -233,7 +239,7 @@ namespace DataAccessLayer
                         }
                         fields = record.ToString().Split(',');
 
-                        InsertNewStock(fields[0] + "." + "NS", "NSI", fields[1], "EQUITY", System.Convert.ToDateTime(fields[3]).ToString("yyyy-MM-dd"), fields[4],
+                        InsertNewStock(fields[0] + "." + "NS", "NSI", fields[1], "Stocks", System.Convert.ToDateTime(fields[3]).ToString("yyyy-MM-dd"), fields[4],
                             fields[5], fields[6], fields[7], dateToday, sqlite_cmd: sqlite_cmd);
 
                         ////sqlite_cmd.CommandText = "REPLACE INTO STOCKMASTER(EXCHANGE, SYMBOL, COMP_NAME, SERIES, DATE_OF_LISTING, PAID_UP_VALUE, " +
@@ -559,6 +565,114 @@ namespace DataAccessLayer
         }
 
         /// <summary>
+        /// Method will use https://finance.yahoo.com/lookup/all?s=larsen to search input search string
+        /// The output returned is an XML from which we are interested in
+        /// <span>All (11)</span> if the search returns valid symbol list it will have number > 0 in () else it will have (0)
+        /// <section>
+        ///     <ul>
+        ///         <li>
+        ///             <a>
+        ///                 <span> All (11)</span>
+        ///             </a>
+        ///         </li>
+        ///     </ul>
+        /// </section>
+        /// THe data is in 
+        /// <div> 
+        ///     <div>
+        ///         <div>
+        ///             <table>
+        ///                 <tbody>
+        ///                     <tr>
+        ///                         <td class="data-col0 Ta(start) Pstart(6px) Pend(15px)">
+        /// symbol =                    <a href = "/quote/LT.NS?p=LT.NS" title="LARSEN &amp; TOUBRO" data-symbol="LT.NS" class="Fw(b)">LT.NS</a>
+        ///                         </td>
+        /// comp_name =             <td class="data-col1 Ta(start) Pstart(10px) Miw(80px)">LARSEN &amp; TOUBRO</td>
+        /// last_price =            <td class="data-col2 Ta(end) Pstart(20px) Pend(15px)">1,925.30</td>
+        ///                         <td class="data-col3 Ta(start) Pstart(20px) Miw(60px)">
+        /// Industry/Category =         <a href = "https://finance.yahoo.com/sector/industrials" title="Industrials" data-symbol="LT.NS" class="Fw(b)">Industrials</a>
+        ///                         </td>
+        /// Type =                  <td class="data-col4 Ta(start) Pstart(20px) Miw(30px)">Stocks</td>
+        /// Exchange =              <td class="data-col5 Ta(start) Pstart(20px) Pend(6px) W(30px)">NSI</td>
+        ///                     </tr>
+        ///                 </tbody>
+        ///             </table>
+        ///         </div>
+        ///     </div>
+        /// </div><tbody> </tbody>
+        /// </summary>
+        /// <param name="searchStr"></param>
+        /// <param name="qualifier">Send specific qualifier to extract specific type of entity. Valid ones are - all, index</param>
+        /// <param name="sqlite_cmd"></param>
+        /// <returns></returns>
+        public bool SearchOnlineInsertInDB(string searchStr, string qualifier = "all", SQLiteCommand sqlite_cmd = null)
+        {
+            bool breturn = false;
+            string responseStr = null, dataStr = null;
+            //WebClient webClient = null;
+            WebResponse wr;
+            Stream receiveStream = null;
+            StreamReader reader = null;
+            int startIndex = 0;
+            int endIndex = 0;
+            XmlDocument xmlResult = null;
+            string compname, exchange, symbol, type, lasttradeprice, category;
+            try
+            {
+                string webservice_url = "";
+
+                //https://finance.yahoo.com/lookup/all?s=larsen
+                webservice_url = string.Format(StockManager.urlSearch, qualifier, searchStr);
+                //webClient = new System.Net.WebClient();
+                //byte[] response = webClient.DownloadData(webservice_url);
+                //responseXML = new StringBuilder( System.Text.UTF8Encoding.UTF8.GetString(response));
+                //webClient.Dispose();
+                //webClient = null;
+
+                Uri url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = "GET";
+                webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+                responseStr = reader.ReadToEnd();
+                reader.Close();
+                if (receiveStream != null)
+                    receiveStream.Close();
+                if (responseStr.Contains("<span>All (0)</span>") == false)
+                {
+                    startIndex = responseStr.IndexOf("<tbody>");
+                    endIndex = responseStr.IndexOf("</tbody>") + 7;
+                    if (startIndex > 0 && endIndex > 0)
+                    {
+                        dataStr = responseStr.Substring(startIndex, endIndex - startIndex + 1);
+                        xmlResult = new XmlDocument();
+                        xmlResult.LoadXml(dataStr);
+                        for (int i = 0; i < xmlResult["tbody"].ChildNodes.Count; i++)
+                        {
+                            //get the data that we are interested in
+                            //compname = xmlResult["tbody"].ChildNodes[i].ChildNodes[0].ChildNodes[0].Attributes["title"].Value; //= "LARSEN AND TOUBRO"
+                            symbol = xmlResult["tbody"].ChildNodes[i].ChildNodes[0].ChildNodes[0].Attributes["data-symbol"].Value.ToUpper(); // = "LTI.NS"
+                            compname = xmlResult["tbody"].ChildNodes[i].ChildNodes[1].ChildNodes[0].Value.ToUpper(); //= "LARSEN AND TOUBRO"
+                            lasttradeprice = xmlResult["tbody"].ChildNodes[i].ChildNodes[2].ChildNodes[0].Value; // = "6034.15"
+                            category = xmlResult["tbody"].ChildNodes[i].ChildNodes[3].ChildNodes[0].Value; // = "Technology"
+                            type = xmlResult["tbody"].ChildNodes[i].ChildNodes[4].ChildNodes[0].Value; // = "Stocks"
+                            exchange = xmlResult["tbody"].ChildNodes[i].ChildNodes[5].ChildNodes[0].Value; // = "NSI"
+                            InsertNewStock(symbol, exchange, compname, type, lastupdt: DateTime.Today.ToString("yyyy-MM-dd"));
+                        }
+                        breturn = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                breturn = false;
+            }
+            return breturn;
+        }
+        /// <summary>
         /// Finds current quote from yahoo finance for the given symbol
         /// If found inserts the symbol into STOCKMASTER using symbol, exchangename and instrumenttype
         /// </summary>
@@ -728,15 +842,16 @@ namespace DataAccessLayer
                             }
                             else
                             {
-                                if (Math.Round(diffSpan.TotalDays) > 0)
-                                {
-                                    range = Math.Round(diffSpan.TotalDays).ToString() + "d";
-                                }
-                                else
-                                {
-                                    //range = "1d";
-                                    range = diffSpan.Minutes.ToString() + "m";
-                                }
+                                //if (Math.Round(diffSpan.TotalDays) > 0)
+                                //{
+                                //    range = Math.Round(diffSpan.TotalDays).ToString() + "d";
+                                //}
+                                //else
+                                //{
+                                //    //range = "1d";
+                                //    range = diffSpan.Minutes.ToString() + "m";
+                                //}
+                                range = "1d";
                             }
                             //we need to fetch data starting from lasttimestamp. We need to send converted script name with either .NS or .BO
                             StringBuilder sbStockData = FetchStockDataOnline(scriptname, range, time_interval, indicators, true);
@@ -817,6 +932,75 @@ namespace DataAccessLayer
             return sqlite_conn;
         }
 
+        public DataTable GetInvestmentTypeList()
+        {
+            DataTable returnTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+            SQLiteTransaction transaction = null;
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = "SELECT DISTINCT(SERIES) FROM STOCKMASTER";
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    returnTable = new DataTable();
+                    returnTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("GetInvestmentTypeList: " + exSQL.Message);
+                    if (returnTable != null)
+                    {
+                        returnTable.Clear();
+                        returnTable.Dispose();
+                        returnTable = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("GetInvestmentTypeList: " + ex.Message);
+                if (returnTable != null)
+                {
+                    returnTable.Clear();
+                    returnTable.Dispose();
+                    returnTable = null;
+                }
+            }
+            finally
+            {
+                if (transaction != null)
+                {
+                    transaction.Commit();
+                    transaction.Dispose();
+                    transaction = null;
+                }
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+                transaction = null;
+            }
+            return returnTable;
+        }
         public DataTable GetExchangeList()
         {
             DataTable returnTable = null;
@@ -978,12 +1162,12 @@ namespace DataAccessLayer
                 }
                 if ((exchangeCode.Equals(string.Empty)) || (exchangeCode.Equals("-1")))
                 {
-                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "'";
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME, SERIES FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "'";
 
                 }
                 else
                 {
-                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "' AND EXCHANGE = '" + exchangeCode + "'";
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME, SERIES FROM STOCKMASTER WHERE SYMBOL = '" + symbol + "' AND EXCHANGE = '" + exchangeCode + "'";
 
                 }
                 try
@@ -1046,11 +1230,11 @@ namespace DataAccessLayer
 
                 if ((exchangeCode.Equals(string.Empty)) || (exchangeCode.Equals("-1")))
                 {
-                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER";
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME, SERIES FROM STOCKMASTER";
                 }
                 else
                 {
-                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME FROM STOCKMASTER WHERE EXCHANGE = '" + exchangeCode + "'";
+                    sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME, SERIES FROM STOCKMASTER WHERE EXCHANGE = '" + exchangeCode + "'";
                 }
 
                 try
@@ -1102,6 +1286,144 @@ namespace DataAccessLayer
                 sqlite_conn = null;
                 sqlite_datareader = null;
                 sqlite_cmd = null;
+            }
+            return returnTable;
+        }
+
+        public DataTable getIndexMaster()
+        {
+            DataTable returnTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                var transaction = sqlite_conn.BeginTransaction();
+
+                sqlite_cmd.CommandText = "SELECT ROWID, EXCHANGE, SYMBOL, COMP_NAME, SERIES FROM STOCKMASTER WHERE SERIES = 'Index'";
+
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    returnTable = new DataTable();
+                    returnTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("getIndexMaster: " + exSQL.Message);
+                    if (returnTable != null)
+                    {
+                        returnTable.Clear();
+                        returnTable.Dispose();
+                        returnTable = null;
+                    }
+                }
+                transaction.Commit();
+                transaction.Dispose();
+                transaction = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getIndexMaster: " + ex.Message);
+                if (returnTable != null)
+                {
+                    returnTable.Clear();
+                    returnTable.Dispose();
+                    returnTable = null;
+                }
+            }
+            finally
+            {
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+            }
+            return returnTable;
+        }
+
+        public DataTable getExchangeMasterForIndex()
+        {
+            DataTable returnTable = null;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null; ;
+            SQLiteCommand sqlite_cmd = null;
+            SQLiteTransaction transaction = null;
+            try
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                transaction = sqlite_conn.BeginTransaction();
+                sqlite_cmd.CommandText = "SELECT DISTINCT(EXCHANGE) FROM STOCKMASTER WHERE SERIES = 'Index'";
+                try
+                {
+                    sqlite_datareader = sqlite_cmd.ExecuteReader();
+                    returnTable = new DataTable();
+                    returnTable.Load(sqlite_datareader);
+                }
+                catch (SQLiteException exSQL)
+                {
+                    Console.WriteLine("GetExchangeList: " + exSQL.Message);
+                    if (returnTable != null)
+                    {
+                        returnTable.Clear();
+                        returnTable.Dispose();
+                        returnTable = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getStockMaster: " + ex.Message);
+                if (returnTable != null)
+                {
+                    returnTable.Clear();
+                    returnTable.Dispose();
+                    returnTable = null;
+                }
+            }
+            finally
+            {
+                if (transaction != null)
+                {
+                    transaction.Commit();
+                    transaction.Dispose();
+                    transaction = null;
+                }
+                if (sqlite_datareader != null)
+                {
+                    sqlite_datareader.Close();
+                }
+                if (sqlite_cmd != null)
+                {
+                    sqlite_cmd.Dispose();
+                }
+
+                if (sqlite_conn != null)
+                {
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                }
+                sqlite_conn = null;
+                sqlite_datareader = null;
+                sqlite_cmd = null;
+                transaction = null;
             }
             return returnTable;
         }
@@ -3176,6 +3498,8 @@ namespace DataAccessLayer
             SQLiteDataReader sqlite_datareader = null; ;
             SQLiteCommand sqlite_cmd = null;
 
+            if ((userid == null) || (userid.Equals(string.Empty)))
+                return returnTable;
             try
             {
                 sqlite_conn = CreateConnection();

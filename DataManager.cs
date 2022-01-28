@@ -829,7 +829,7 @@ namespace DataAccessLayer
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine("insertRecordInDB exception while setting NAV value: " + ex.Message);
+                                Console.WriteLine("insertRecordInDB NAV received as: " + netAssetValue.ToString() + " skipping this record due to exce[tion: " + ex.Message);
                                 nav = 0.00;
                             }
                             if (nav == 0)
@@ -2790,7 +2790,10 @@ namespace DataAccessLayer
                 SQLiteConnection sqlite_conn = CreateConnection();
                 SQLiteCommand sqlite_cmd1 = sqlite_conn.CreateCommand();
                 SQLiteDataReader sqlite_datareader = null;
-                sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, max(strftime('%d-%m-%Y', NAVRECORDS.NAVDATE)) as NAVDATE from NAVRECORDS " +
+                //sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, max(strftime('%d-%m-%Y', NAVRECORDS.NAVDATE)) as NAVDATE from NAVRECORDS " +
+                //                    "WHERE NAVRECORDS.SCHEMECODE = " + e.Row["SCHEME_CODE"].ToString();
+                //the above statement max gives 31-12-2021 as the max instead of date 17-01-2022
+                sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, strftime('%d-%m-%Y', max(julianday(NAVRECORDS.NAVDATE))) as NAVDATE from NAVRECORDS " +
                                     "WHERE NAVRECORDS.SCHEMECODE = " + e.Row["SCHEME_CODE"].ToString();
                 try
                 {
@@ -2838,7 +2841,7 @@ namespace DataAccessLayer
             if (currentNAVdt.Equals(DateTime.MinValue) == false)
             {
                 //currentNAV = System.Convert.ToDouble(string.Format("{0:0.0000}", e.Row["CurrentNAV"]));
-                currentValue = Math.Round(currentNAV * System.Convert.ToDouble(string.Format("{0:0.00}", e.Row["PurchaseUnits"])), 4);
+                currentValue = Math.Round(currentNAV * System.Convert.ToDouble(string.Format("{0:0.00}", e.Row["PurchaseUnits"])), 2);
                 //currentNAVdt = System.Convert.ToDateTime(e.Row["NAVDate"].ToString());
 
                 purchaseNAVDt = System.Convert.ToDateTime(e.Row["PurchaseDate"].ToString());
@@ -2846,7 +2849,7 @@ namespace DataAccessLayer
 
                 try
                 {
-                    yearsInvested = Math.Round(((currentNAVdt - purchaseNAVDt).TotalDays) / 365.25, 4);
+                    yearsInvested = Math.Round(((currentNAVdt - purchaseNAVDt).TotalDays) / 365.25, 2);
                 }
                 catch (Exception ex)
                 {
@@ -3028,8 +3031,11 @@ namespace DataAccessLayer
                 SQLiteConnection sqlite_conn = CreateConnection();
                 SQLiteCommand sqlite_cmd1 = sqlite_conn.CreateCommand();
                 SQLiteDataReader sqlite_datareader = null;
-                sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, max(strftime('%d-%m-%Y', NAVRECORDS.NAVDATE)) as NAVDATE from NAVRECORDS " +
+                //sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, max(strftime('%d-%m-%Y', NAVRECORDS.NAVDATE)) as NAVDATE from NAVRECORDS " +
+                //                    "WHERE NAVRECORDS.SCHEMECODE = " + e.Row["SCHEME_CODE"].ToString();
+                sqlite_cmd1.CommandText = "SELECT NAVRECORDS.NET_ASSET_VALUE, strftime('%d-%m-%Y', max(julianday(NAVRECORDS.NAVDATE))) as NAVDATE from NAVRECORDS " +
                                     "WHERE NAVRECORDS.SCHEMECODE = " + e.Row["SCHEME_CODE"].ToString();
+                //strftime('%d-%m-%Y', max(julianday(NAVRECORDS.NAVDATE)))
                 try
                 {
                     sqlite_datareader = sqlite_cmd1.ExecuteReader();
