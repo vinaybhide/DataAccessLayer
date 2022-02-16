@@ -2861,7 +2861,7 @@ namespace DataAccessLayer
                 try
                 {
                     arr = Math.Round(0.00, 2);
-                    if (yearsInvested > 0)
+                    if (Math.Round(yearsInvested, 0) > 0)
                     {
                         arr = Math.Round(Math.Pow((currentValue / valueAtCost), (1 / yearsInvested)) - 1, 2);
                     }
@@ -2891,6 +2891,68 @@ namespace DataAccessLayer
 
             //e.Row.Table.RowChanged += new DataRowChangeEventHandler((s, earg) => handlerPortfolioTableRowChanged(s, e, sqlite_cmd));
             e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerPortfolioTableRowChanged);
+        }
+
+        public DataTable getAllMFPortfolioTableForUserId(string userid)
+        {
+            DataTable resultDataTable = null;
+            double dblCost = 0.00;
+            double dblValue = 0.00;
+            double dblCumCost = 0.00;
+            double dblCumValue = 0.00;
+
+            try
+            {
+                //get all records from portfolio table matching portfolioname
+                //get related scheme name, scheme id from schemes table
+                //get latest NAV from NAVrecords table where NAVDate = schemes.todate
+                resultDataTable = new DataTable();
+                //FundHouse;FundName;SCHEME_CODE;PurchaseDate;PurchaseNAV;PurchaseUnits;ValueAtCost
+                resultDataTable.Columns.Add("ID", typeof(long)); //FundHouse
+                resultDataTable.Columns.Add("PORTFOLIO_NAME", typeof(string)); //FundHouse
+                resultDataTable.Columns.Add("CumulativeCost", typeof(decimal));
+                resultDataTable.Columns.Add("CumulativeValue", typeof(decimal));
+
+                //fist get all portfolios for the userid
+                DataTable tablePortfolioMaster = getPortfolioTable(userid);
+                if ((tablePortfolioMaster != null) && (tablePortfolioMaster.Rows.Count > 0))
+                {
+                    //for each portfolio in the master table get portfolio table
+                    foreach (DataRow rowMaster in tablePortfolioMaster.Rows)
+                    {
+                        dblCost = 0.00;
+                        dblValue = 0.00;
+                        dblCumCost = 0.00;
+                        dblCumValue = 0.00;
+
+                        DataTable tablePortfolio = openMFPortfolio(userid, rowMaster["PORTFOLIO_NAME"].ToString(),  rowMaster["ID"].ToString());
+                        //we have specific portfolio table. loop through the table and cum up the cost & value
+                        if ((tablePortfolio != null) && (tablePortfolio.Rows.Count > 0))
+                        {
+                            foreach (DataRow rowPortfolio in tablePortfolio.Rows)
+                            {
+                                dblCost = Convert.ToDouble(rowPortfolio["ValueAtCost"].ToString());
+                                dblValue = Convert.ToDouble(rowPortfolio["CurrentValue"].ToString());
+
+                                dblCumCost += dblCost;
+                                dblCumValue += dblValue;
+                            }
+                        }
+                        resultDataTable.Rows.Add(new object[] {
+                                                                    rowMaster["ID"],
+                                                                    rowMaster["PORTFOLIO_NAME"],
+                                                                    Math.Round(dblCumCost, 2),
+                                                                    Math.Round(dblCumValue, 2)
+                                                                });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getAllMFPortfolioTableForUserId: " + ex.Message);
+            }
+
+            return resultDataTable;
         }
 
         public DataTable GetMFValuationBarGraph(string portfolioMasterRowId, string userId = "", string portfolioName ="" )

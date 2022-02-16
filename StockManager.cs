@@ -3446,7 +3446,7 @@ namespace DataAccessLayer
 
                     try
                     {
-                        if (sqlite_cmd.ExecuteNonQuery() > 0)
+                        if (sqlite_cmd.ExecuteNonQuery() >= 0)
                         {
                             sqlite_cmd.CommandText = "DELETE FROM STOCKPORTFOLIO_MASTER WHERE ROWID = " + masterstockportfolio_rowid;
                             if (sqlite_cmd.ExecuteNonQuery() > 0)
@@ -3775,8 +3775,8 @@ namespace DataAccessLayer
                                 {
                                     currentPrice = System.Convert.ToDouble(string.Format("{0:0.00}", dailyTable.Rows[dailyRowNum]["CLOSE"]));
 
-                                    cumValue = Math.Round((currentPrice * cumQty), 4);
-                                    currentValue = Math.Round((currentPrice * purchaseQty), 4);
+                                    cumValue = Math.Round((currentPrice * cumQty), 2);
+                                    currentValue = Math.Round((currentPrice * purchaseQty), 2);
 
                                     try
                                     {
@@ -3786,37 +3786,37 @@ namespace DataAccessLayer
                                     catch (Exception ex)
                                     {
                                         Console.WriteLine("PortfolioValuation: " + ex.Message);
-                                        yearsInvested = Math.Round(0.00, 4);
-                                        totalYearsInvested = Math.Round(0.00, 4);
+                                        yearsInvested = Math.Round(0.00, 2);
+                                        totalYearsInvested = Math.Round(0.00, 2);
                                     }
 
 
                                     try
                                     {
-                                        arr = Math.Round(0.00, 4);
-                                        if (yearsInvested != 0)
+                                        arr = Math.Round(0.00, 2);
+                                        if (Math.Round(yearsInvested, 0) != 0)
                                         {
-                                            arr = Math.Round(Math.Pow((currentValue / investmentCost), (1 / yearsInvested)) - 1, 4);
+                                            arr = Math.Round(Math.Pow((currentValue / investmentCost), (1 / yearsInvested)) - 1, 2);
                                         }
                                     }
                                     catch (Exception ex)
                                     {
                                         Console.WriteLine("openMFPortfolio: " + ex.Message);
-                                        arr = Math.Round(0.00, 4);
+                                        arr = Math.Round(0.00, 2);
                                     }
 
                                     try
                                     {
-                                        totalARR = Math.Round(0.00, 4);
-                                        if (totalYearsInvested != 0)
+                                        totalARR = Math.Round(0.00, 2);
+                                        if (Math.Round(totalYearsInvested, 0) != 0)
                                         {
-                                            totalARR = Math.Round(Math.Pow((cumValue / cumCost), (1 / totalYearsInvested)) - 1, 4);
+                                            totalARR = Math.Round(Math.Pow((cumValue / cumCost), (1 / totalYearsInvested)) - 1, 2);
                                         }
                                     }
                                     catch (Exception ex)
                                     {
                                         Console.WriteLine("openMFPortfolio: " + ex.Message);
-                                        totalARR = Math.Round(0.00, 4);
+                                        totalARR = Math.Round(0.00, 2);
                                     }
 
                                     //following will come from current portfolio transaction as is
@@ -3940,129 +3940,6 @@ namespace DataAccessLayer
             return valuationTable;
         }
 
-        //public DataTable GetValuation(string portfolioMasterRowId)
-        //{
-        //    DataTable stockDataTable = null, filteredStockTable = null;
-        //    DataTable portfolioTable = null, filteredPortfolioTable = null;
-        //    DataTable symbolTable = null;
-        //    DataTable valuationTable = new DataTable();
-        //    DataRow currentfilteredportfoliorow = null, nextfilteredportfoliorow = null;
-        //    try
-        //    {
-        //        //first get the portfolio table
-        //        portfolioTable = getStockPortfolioTable(portfolioMasterRowId);
-
-        //        //now we want to find the distinct symbols from portfolio, so that we can get the stockdata for each of the symbol
-        //        symbolTable = portfolioTable.DefaultView.ToTable(true, "SYMBOL", "EXCHANGE", "FirstPurchaseDate", "LastPurchaseDate");
-
-        //        foreach (DataRow rowSymbol in symbolTable.Rows)
-        //        {
-        //            if (stockDataTable != null)
-        //            {
-        //                stockDataTable.Clear();
-        //                stockDataTable.Dispose();
-        //                stockDataTable = null;
-        //            }
-        //            //now we need to get stock data for each symbol starting from firstpurchasedate till today
-        //            stockDataTable = GetStockPriceData(rowSymbol["SYMBOL"].ToString(), rowSymbol["EXCHANGE"].ToString(), outputsize: "Full", time_interval: "1d");
-        //            //now we need to fiter the stockdata recrods >= firstpurchasedate from posrtfoliotable
-        //            stockDataTable.DefaultView.RowFilter = "TIMESTAMP >= '" + System.Convert.ToDateTime(rowSymbol["FirstPurchaseDate"]).ToString("yyyy-MM-dd") + "'";
-        //            stockDataTable = stockDataTable.DefaultView.ToTable();
-
-        //            //now add portfoliotable columns to stockdatatable
-        //            //stockDataTable.Columns.AddRange((DataColumn[])portfolioTable.Columns.Cast<DataColumn>()); 
-        //            //the above statement will add ALL columns from portfoliotable but we want only specific columns
-        //            //stockDataTable.Columns.Add("PURCHASE_DATE", typeof(DateTime)); //PurchaseDate
-        //            stockDataTable.Columns.Add("PURCHASE_DATE", typeof(string)); //PurchaseDate
-        //            stockDataTable.Columns.Add("PURCHASE_PRICE", typeof(decimal)); //PurchaseNAV
-        //            stockDataTable.Columns.Add("PURCHASE_QTY", typeof(decimal)); //PurchaseUnits
-        //            stockDataTable.Columns.Add("INVESTMENT_COST", typeof(decimal)); //ValueAtCost
-        //            stockDataTable.Columns.Add("CURRENTVALUE", typeof(decimal));
-        //            stockDataTable.Columns.Add("CumulativeQty", typeof(decimal));
-        //            stockDataTable.Columns.Add("CumulativeCost", typeof(decimal));
-        //            stockDataTable.Columns.Add("CumulativeValue", typeof(decimal));
-
-        //            //now filter portfoliotable by symbol
-        //            portfolioTable.DefaultView.RowFilter = "SYMBOL = '" + rowSymbol["SYMBOL"].ToString() + "' AND EXCHANGE = '" + rowSymbol["EXCHANGE"].ToString() + "'";
-        //            filteredPortfolioTable = portfolioTable.DefaultView.ToTable();
-
-        //            //now we have to update each row of stockdatatable with values from filteredportfoliotable depending on the timestamp <= purchasedate
-        //            for (int rowfilteredPortfolioTable = 0; rowfilteredPortfolioTable < filteredPortfolioTable.Rows.Count; rowfilteredPortfolioTable++)
-        //            {
-        //                currentfilteredportfoliorow = filteredPortfolioTable.Rows[rowfilteredPortfolioTable];
-        //                if ((rowfilteredPortfolioTable + 1) < filteredPortfolioTable.Rows.Count)
-        //                {
-        //                    nextfilteredportfoliorow = filteredPortfolioTable.Rows[rowfilteredPortfolioTable + 1];
-        //                }
-        //                else
-        //                {
-        //                    nextfilteredportfoliorow = null;
-        //                }
-        //                //get all the stockdata records whoose timestamp is <= current portfolio records purchasedate
-        //                if (nextfilteredportfoliorow != null)
-        //                {
-        //                    stockDataTable.DefaultView.RowFilter = "TIMESTAMP >= '" +
-        //                            System.Convert.ToDateTime(currentfilteredportfoliorow["PURCHASE_DATE"]).ToString("yyyy-MM-dd") + "' AND " +
-        //                            "TIMESTAMP <= '" +
-        //                            System.Convert.ToDateTime(nextfilteredportfoliorow["PURCHASE_DATE"]).ToString("yyyy-MM-dd") + "'";
-        //                }
-        //                else //this is the last row
-        //                {
-        //                    stockDataTable.DefaultView.RowFilter = "TIMESTAMP >= '" +
-        //                            System.Convert.ToDateTime(currentfilteredportfoliorow["PURCHASE_DATE"]).ToString("yyyy-MM-dd") + "'";
-        //                }
-        //                filteredStockTable = stockDataTable.DefaultView.ToTable();
-        //                foreach (DataRow filteredstockrow in filteredStockTable.Rows)
-        //                {
-        //                    //for portfolio purpose we show date in dd-mm-yyyy hh:mm:ss format. For graphs we need to use yyyy-mm-dd format
-        //                    filteredstockrow["PURCHASE_DATE"] = System.Convert.ToDateTime(currentfilteredportfoliorow["PURCHASE_DATE"]).ToString("yyyy-MM-dd");
-        //                    filteredstockrow["PURCHASE_PRICE"] = currentfilteredportfoliorow["PURCHASE_PRICE"];
-        //                    filteredstockrow["PURCHASE_QTY"] = currentfilteredportfoliorow["PURCHASE_QTY"];
-        //                    filteredstockrow["INVESTMENT_COST"] = currentfilteredportfoliorow["INVESTMENT_COST"];
-        //                    filteredstockrow["CURRENTVALUE"] = currentfilteredportfoliorow["CURRENTVALUE"];
-        //                    filteredstockrow["CumulativeQty"] = currentfilteredportfoliorow["CumulativeQty"];
-        //                    filteredstockrow["CumulativeCost"] = currentfilteredportfoliorow["CumulativeCost"];
-        //                    filteredstockrow["CumulativeValue"] = currentfilteredportfoliorow["CumulativeValue"];
-        //                }
-        //                valuationTable.Merge(filteredStockTable, true);
-        //            }
-
-        //        }
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        Console.WriteLine(ex.Message);
-        //        valuationTable.Clear();
-        //        valuationTable.Dispose();
-        //        valuationTable = null;
-        //    }
-        //    finally
-        //    {
-        //        if (stockDataTable != null)
-        //        {
-        //            stockDataTable.Clear(); stockDataTable.Dispose(); stockDataTable = null;
-        //        }
-        //        if (filteredStockTable != null)
-        //        {
-        //            filteredStockTable.Clear(); filteredStockTable.Dispose(); filteredStockTable = null;
-        //        }
-        //        if (portfolioTable != null)
-        //        {
-        //            portfolioTable.Clear(); portfolioTable.Dispose(); portfolioTable = null;
-        //        }
-        //        if (filteredPortfolioTable != null)
-        //        {
-        //            filteredPortfolioTable.Clear(); filteredPortfolioTable.Dispose(); filteredPortfolioTable = null;
-        //        }
-
-        //        if (symbolTable != null)
-        //        {
-        //            symbolTable.Clear(); symbolTable.Dispose(); symbolTable = null;
-        //        }
-
-        //    }
-        //    return valuationTable;
-        //}
 
         /// <summary>
         /// method that gets called when a row is added to 'sender' data table
@@ -4357,7 +4234,166 @@ namespace DataAccessLayer
             return resultDataTable;
         }
 
+        /// <summary>
+        /// Method to get for supplied userid all portfolio name, total cost, total valuation
+        /// if will get all portfolios for a user, 
+        /// then for each portfolio id it will get the portfolio table
+        ///     for each symbol in current portfolio table it will add to cumulative cost & find valuation & add it to cumulative valuation
+        /// </summary>
+        /// <param name="userid"></param>
+        /// <returns>DataTable with data or empty datatable</returns>
+        public DataTable getAllPortfolioTableForUserId(string userid)
+        {
+            DataTable resultDataTable = null;
+            double dblCost = 0.00;
+            double dblValue = 0.00;
+            double dblCumCost = 0.00;
+            double dblCumValue = 0.00;
+
+            try
+            {
+                //get all records from portfolio table matching portfolioname
+                //get related scheme name, scheme id from schemes table
+                //get latest NAV from NAVrecords table where NAVDate = schemes.todate
+                resultDataTable = new DataTable();
+                //FundHouse;FundName;SCHEME_CODE;PurchaseDate;PurchaseNAV;PurchaseUnits;ValueAtCost
+                resultDataTable.Columns.Add("ROWID", typeof(long)); //FundHouse
+                resultDataTable.Columns.Add("PORTFOLIO_NAME", typeof(string)); //FundHouse
+                resultDataTable.Columns.Add("CumulativeCost", typeof(decimal));
+                resultDataTable.Columns.Add("CumulativeValue", typeof(decimal));
+
+                //fist get all portfolios for the userid
+                DataTable tablePortfolioMaster = getPortfolioMaster(userid);
+                if ((tablePortfolioMaster != null) && (tablePortfolioMaster.Rows.Count > 0))
+                {
+                    //for each portfolio in the master table get portfolio table
+                    foreach (DataRow rowMaster in tablePortfolioMaster.Rows)
+                    {
+                        dblCost = 0.00;
+                        dblValue = 0.00;
+                        dblCumCost = 0.00;
+                        dblCumValue = 0.00;
+
+                        DataTable tablePortfolio = getStockPortfolioTable(rowMaster["ROWID"].ToString());
+                        //we have specific portfolio table. loop through the table and cum up the cost & value
+                        if ((tablePortfolio != null) && (tablePortfolio.Rows.Count > 0))
+                        {
+                            foreach (DataRow rowPortfolio in tablePortfolio.Rows)
+                            {
+                                dblCost = Convert.ToDouble(rowPortfolio["INVESTMENT_COST"].ToString());
+                                dblValue = Convert.ToDouble(rowPortfolio["CURRENTVALUE"].ToString());
+
+                                dblCumCost += dblCost;
+                                dblCumValue += dblValue;
+                            }
+                        }
+                        resultDataTable.Rows.Add(new object[] {
+                                                                    rowMaster["ROWID"],
+                                                                    rowMaster["PORTFOLIO_NAME"],
+                                                                    Math.Round(dblCumCost, 2),
+                                                                    Math.Round(dblCumValue, 2)
+                                                                });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("getAllPortfolioTableForUserId: " + ex.Message);
+            }
+
+            return resultDataTable;
+        }
         #endregion
 
+        #region import
+        public DataTable readSourceCSV(StreamReader reader, bool columnHeader = true, char separatorChar = ',')
+        {
+            DataTable returnDT = null;
+            try
+            {
+                if (reader != null)
+                {
+                    string record = reader.ReadLine();
+                    string filteredRecord;
+                    //string filteredRecord = new string(record.Where(c => (char.IsLetterOrDigit(c))).ToArray());
+
+                    //time,Real Lower Band,Real Middle Band,Real Upper Band
+
+                    returnDT = new DataTable();
+
+                    string[] fields;
+
+                    returnDT.RowChanged += new DataRowChangeEventHandler(handlerforCSVSourceNewRow);
+
+                    if (columnHeader == true)
+                    {
+                        //data has column names as first row
+                        fields = record.Split(separatorChar);
+
+                        for (int i = 0; i < fields.Length; i++)
+                        {
+
+                            //myString.All(c => char.IsLetterOrDigit(c)); NOT USED here
+
+                            //using Where to remove unwanted characters other than normal alph numbneric. The function uses predicate to evaluate condition for current char
+                            //and then fiters those characters. Here we will use IsLetterOrDigit. Which means all characters in the source string which are not Letter or Digit
+                            //will be removed
+                            filteredRecord = new string(fields[i].Where(c => (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))).ToArray());
+                            returnDT.Columns.Add(filteredRecord.Trim(), typeof(string));
+                        }
+                    }
+                    else
+                    {
+                        //there is no column names row. just create temp column names in table 
+                        //using count along with predicate to check for separator count
+                        var count = record.Count(x => x == separatorChar);
+                        for (int i = 1; i <= count; i++)
+                        {
+                            returnDT.Columns.Add("Col_" + i, typeof(string));
+                        }
+                        //since we have already read the first row which is actual data we need to add this in the table
+                        fields = record.Split(separatorChar);
+                        returnDT.Rows.Add(fields);
+                    }
+
+                    //now add rest of the data
+                    while (!reader.EndOfStream)
+                    {
+                        record = reader.ReadLine();
+                        //filteredRecord = new string(record.Where(c => (char.IsLetterOrDigit(c))).ToArray());
+                        fields = record.Split(separatorChar);
+                        returnDT.Rows.Add(fields);
+                    }
+                    returnDT.RowChanged -= new DataRowChangeEventHandler(handlerforCSVSourceNewRow);
+
+                }
+            }
+            catch (Exception ex)
+            {
+                if (returnDT != null)
+                {
+                    returnDT.Clear();
+                    returnDT.Dispose();
+                }
+                returnDT = null;
+            }
+            return returnDT;
+        }
+
+        private void handlerforCSVSourceNewRow(object sender, DataRowChangeEventArgs e)
+        {
+            e.Row.Table.RowChanged -= new DataRowChangeEventHandler(handlerforCSVSourceNewRow); ;
+
+            for (int i = 0; i < e.Row.Table.Columns.Count; i++)
+            {
+                //For each column content we have to check & remove any unwanted characters
+                //using Where to remove unwanted characters other than normal alph numbneric. The function uses predicate to evaluate condition for current char
+                //and then fiters those characters. Here we will use IsLetterOrDigit. Which means all characters in the source string which are not Letter or Digit
+                //will be removed
+                e.Row[i] = new string(e.Row[i].ToString().Where(c => (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || char.IsPunctuation(c))).ToArray());
+            }
+            e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerforCSVSourceNewRow); ;
+        }
+        #endregion
     }
 }
