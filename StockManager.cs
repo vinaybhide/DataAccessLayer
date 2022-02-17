@@ -32,6 +32,17 @@ namespace DataAccessLayer
         //https://query1.finance.yahoo.com/v8/finance/chart/HDFC.BO?range=1d&interval=1d&indicators=quote&timestamp=true
         public static string urlGlobalQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?range=1d&interval=1d&indicators=quote&timestamp=true";
 
+        //to get specific historic price
+        //below is 10-02-2022 to 11-02-2022
+        //https://finance.yahoo.com/quote/LT.NS/history?period1=1644451200&period2=1644537600&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
+
+        //below is 17-02-2022 to 18-02-2022
+        //https://finance.yahoo.com/quote/LT.NS/history?period1=1645056000&period2=1645142400&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
+        //the following gives json
+        //https://query1.finance.yahoo.com/v8/finance/chart/LT.NS?period1=1644451200&period2=1644537600&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
+
+        public static string urlGetHistoryQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?period1={1}&period2={2}&interval={3}&filter=history&frequency={4}&includeAdjustedClose={5}";
+
         //https://finance.yahoo.com/lookup/index?s=all
         //https://finance.yahoo.com/lookup/all?s=proctor
         //https://finance.yahoo.com/lookup/all?s=larsen
@@ -537,6 +548,54 @@ namespace DataAccessLayer
 
                 //https://query1.finance.yahoo.com/v7/finance/chart/HDFC.BO?range=1m&interval=1m&indicators=quote&timestamp=true
                 webservice_url = string.Format(StockManager.urlGlobalQuote, symbol);
+
+                Uri url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = "GET";
+                webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+
+                resultDataTable = getQuoteTableFromJSON(reader.ReadToEnd(), symbol);
+                reader.Close();
+                if (receiveStream != null)
+                    receiveStream.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                if (resultDataTable != null)
+                {
+                    resultDataTable.Clear();
+                    resultDataTable.Dispose();
+                }
+                resultDataTable = null;
+            }
+            return resultDataTable;
+        }
+
+        //https://query1.finance.yahoo.com/v8/finance/chart/LT.NS?period1=1644451200&period2=1644537600&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
+        //public static string urlGetHistoryQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?period1={1}&period2={2}&interval={3}&filter=history&frequency={4}&includeAdjustedClose={5}";
+        public DataTable GetHistoryQuote(string symbol, string periodDt1, string periodDt2, string interval="1d", string frequency="1d", string adjclose="true")
+        {
+            DataTable resultDataTable = null;
+            try
+            {
+                string webservice_url = "";
+                WebResponse wr;
+                Stream receiveStream = null;
+                StreamReader reader = null;
+                //DataRow r;
+
+                //https://query1.finance.yahoo.com/v8/finance/chart/LT.NS?period1=1644451200&period2=1644537600&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
+                //public static string urlGetHistoryQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?period1={1}&period2={2}&interval={3}&filter=history&frequency={4}&includeAdjustedClose={5}";
+
+                //we need to convert the date first
+                string period1 = convertDateTimeToUnixEpoch(System.Convert.ToDateTime(periodDt1)).ToString();
+                string period2 = convertDateTimeToUnixEpoch(System.Convert.ToDateTime(periodDt2)).ToString();
+
+                webservice_url = string.Format(StockManager.urlGetHistoryQuote, symbol, period1, period2, interval, frequency, adjclose);
 
                 Uri url = new Uri(webservice_url);
                 var webRequest = WebRequest.Create(url);
@@ -2858,6 +2917,13 @@ namespace DataAccessLayer
             localDateTime = TimeZoneInfo.ConvertTimeFromUtc(dateTimeOffset.UtcDateTime, currentTimeZone);
 
             return localDateTime;
+        }
+
+        public long convertDateTimeToUnixEpoch(DateTime dtToConvert)
+        {
+            DateTimeOffset dtoffset = new DateTimeOffset(new DateTime(dtToConvert.Year, dtToConvert.Month, dtToConvert.Day, 0, 0, 0, DateTimeKind.Utc));
+
+            return dtoffset.ToUnixTimeSeconds();
         }
 
         public double FindTR1(int rownum, DataTable dailyTable)
