@@ -58,7 +58,7 @@ namespace DataAccessLayer
                 WebResponse wr;
                 Stream receiveStream = null;
                 StreamReader reader = null;
-                string convertedScriptName;
+                //string convertedScriptName;
                 string range, interval;
                 var errors = new List<string>();
 
@@ -176,6 +176,7 @@ namespace DataAccessLayer
             catch (Exception ex)
             {
                 myDeserializedClass = null;
+                Console.WriteLine(ex.Message);
             }
             return myDeserializedClass;
         }
@@ -4434,7 +4435,7 @@ namespace DataAccessLayer
 
                 }
             }
-            catch (Exception ex)
+            catch
             {
                 if (returnDT != null)
                 {
