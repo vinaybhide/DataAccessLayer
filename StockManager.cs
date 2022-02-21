@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using ClosedXML.Excel;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -578,7 +579,7 @@ namespace DataAccessLayer
 
         //https://query1.finance.yahoo.com/v8/finance/chart/LT.NS?period1=1644451200&period2=1644537600&interval=1d&filter=history&frequency=1d&includeAdjustedClose=true
         //public static string urlGetHistoryQuote = "https://query1.finance.yahoo.com/v8/finance/chart/{0}?period1={1}&period2={2}&interval={3}&filter=history&frequency={4}&includeAdjustedClose={5}";
-        public DataTable GetHistoryQuote(string symbol, string periodDt1, string periodDt2, string interval="1d", string frequency="1d", string adjclose="true")
+        public DataTable GetHistoryQuote(string symbol, string periodDt1, string periodDt2, string interval = "1d", string frequency = "1d", string adjclose = "true")
         {
             DataTable resultDataTable = null;
             try
@@ -4372,7 +4373,7 @@ namespace DataAccessLayer
         }
         #endregion
 
-        #region import
+        #region import CSV
         public DataTable readSourceCSV(StreamReader reader, bool columnHeader = true, char separatorChar = ',')
         {
             DataTable returnDT = null;
@@ -4461,6 +4462,266 @@ namespace DataAccessLayer
             }
             e.Row.Table.RowChanged += new DataRowChangeEventHandler(handlerforCSVSourceNewRow); ;
         }
+        #endregion
+        #region import excel
+
+        public DataTable ReadExcelFile(string filePath, string sheetName, bool bHasColumnNames)
+        {
+            DataTable dt = new DataTable();
+            try
+            {
+                // Open the Excel file using ClosedXML.
+                // Keep in mind the Excel file cannot be open when trying to read it
+                using (XLWorkbook workBook = new XLWorkbook(filePath))
+                {
+                    //Read the first Sheet from Excel file.
+                    IXLWorksheet workSheet = workBook.Worksheet(sheetName);
+
+                    //Create a new DataTable.
+
+                    //Loop through the Worksheet rows.
+                    bool firstRow = true;
+                    int i = 1, j = 0;
+                    DataRow newImportedRow;
+                    IXLRow titleRow = workSheet.Rows().First<IXLRow>();
+
+                    foreach (IXLCell cell in titleRow.Cells())
+                    {
+                        if (bHasColumnNames)
+                        {
+                            dt.Columns.Add(cell.Value.ToString(), typeof(string));
+                        }
+                        else
+                        {
+                            dt.Columns.Add("COLUMN_" + i.ToString(), typeof(string));
+                            i++;
+                        }
+                    }
+
+                    foreach (IXLRow row in workSheet.Rows())
+                    {
+                        //Use the first row to add columns to DataTable.
+                        if ((firstRow) && (bHasColumnNames))
+                        {
+                            firstRow = false;
+                            continue;
+                        }
+                        else
+                        {
+                            //Add rows to DataTable.
+                            newImportedRow = dt.NewRow();
+                            j = 0;
+                            //foreach (IXLCell cell in row.Cells(row.FirstCellUsed().Address.ColumnNumber, row.LastCellUsed().Address.ColumnNumber))
+                            foreach (IXLCell cell in row.Cells())
+                            {
+                                newImportedRow[j] = new string(cell.Value.ToString().Where(c => (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || char.IsPunctuation(c))).ToArray());
+                                j++;
+                            }
+                            dt.Rows.Add(newImportedRow);
+                        }
+                    }
+                }
+                File.Delete(filePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                if(dt != null)
+                {
+                    dt.Clear();
+                    dt.Dispose();
+                }
+                dt = null;
+            }
+            return dt;
+        }
+
+        //following is the original method for ClosedXML
+        //public static DataTable ImportExceltoDatatable(string filePath, string sheetName)
+        //{
+        //    // Open the Excel file using ClosedXML.
+        //    // Keep in mind the Excel file cannot be open when trying to read it
+        //    using (XLWorkbook workBook = new XLWorkbook(filePath))
+        //    {
+        //        //Read the first Sheet from Excel file.
+        //        IXLWorksheet workSheet = workBook.Worksheet(1);
+
+        //        //Create a new DataTable.
+        //        DataTable dt = new DataTable();
+
+        //        //Loop through the Worksheet rows.
+        //        bool firstRow = true;
+        //        foreach (IXLRow row in workSheet.Rows())
+        //        {
+        //            //Use the first row to add columns to DataTable.
+        //            if (firstRow)
+        //            {
+        //                foreach (IXLCell cell in row.Cells())
+        //                {
+        //                    dt.Columns.Add(cell.Value.ToString());
+        //                }
+        //                firstRow = false;
+        //            }
+        //            else
+        //            {
+        //                //Add rows to DataTable.
+        //                dt.Rows.Add();
+        //                int i = 0;
+
+        //                foreach (IXLCell cell in row.Cells(row.FirstCellUsed().Address.ColumnNumber, row.LastCellUsed().Address.ColumnNumber))
+        //                {
+        //                    dt.Rows[dt.Rows.Count - 1][i] = cell.Value.ToString();
+        //                    i++;
+        //                }
+        //            }
+        //        }
+
+        //        return dt;
+        //    }
+        //}
+        //public DataTable ReadSourceExcelFile(string filename, bool bHasColumnNames, string nameWorksheet)
+        //{
+        //    DataTable ContentTable = null;
+        //    try
+        //    {
+        //        string connectionString = string.Empty;
+
+        //        switch (Path.GetExtension(filename).ToUpperInvariant())
+        //        {
+        //            case ".XLS":
+        //                connectionString = string.Format("Provider=Microsoft.Jet.OLEDB.4.0; Data Source={0}; Extended Properties=Excel 8.0;", filename);
+        //                break;
+
+        //            case ".XLSX":
+        //                connectionString = string.Format("Provider=Microsoft.ACE.OLEDB.12.0;Data Source={0}; Extended Properties=Excel 12.0;", filename);
+        //                break;
+        //            default:
+        //                throw (new Exception("File extension is missing"));
+        //        }
+
+        //        //if (extrn == ".xls")
+        //        //    //Connectionstring for excel v8.0    
+
+        //        //    connString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=" + filename + ";Extended Properties=\"Excel 8.0;HDR=Yes;IMEX=1\"";
+        //        //else
+        //        //    //Connectionstring fo excel v12.0    
+        //        //    connString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=" + filename + ";Extended Properties=\"Excel 12.0;HDR=Yes;IMEX=1\"";
+
+        //        OleDbConnection OledbConn = new OleDbConnection(connectionString);
+
+        //        OleDbCommand OledbCmd = new OleDbCommand();
+        //        OledbCmd.Connection = OledbConn;
+        //        OledbConn.Open();
+        //        //OledbCmd.CommandText = "Select * from [StudentDetails$]";
+        //        OledbCmd.CommandText = "Select * from [" + nameWorksheet + "$]";
+        //        OleDbDataReader dr = OledbCmd.ExecuteReader();
+        //        if (dr.HasRows)
+        //        {
+        //            ContentTable = new DataTable();
+
+        //            //read first line
+        //            dr.Read();
+
+        //            if (bHasColumnNames)
+        //            {
+        //                //if first row in file has rows then use the cell content to create columns
+        //                for (int i = 0; i < dr.FieldCount; i++)
+        //                {
+        //                    ContentTable.Columns.Add(dr[i].ToString().Trim(), typeof(string));
+        //                }
+        //                //in this case we will have to read the next data row
+        //                dr.Read();
+        //            }
+        //            else
+        //            {
+        //                //since first row does not have column names, we will create adhoc column names for each column
+        //                for (int i = 0; i < dr.FieldCount; i++)
+        //                {
+        //                    ContentTable.Columns.Add("COLUMN_" + i.ToString(), typeof(string));
+        //                }
+        //            }
+        //            DataRow newRow;
+        //            do
+        //            {
+        //                newRow = ContentTable.NewRow();
+        //                for (int i = 0; i < dr.FieldCount; i++)
+        //                {
+        //                    //this predicate only letter or digit or whitespace or punctuation marks and removes any unwanted characters
+        //                    newRow[i] = new string(dr[i].ToString().Where(c => (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || char.IsPunctuation(c))).ToArray());
+        //                }
+        //                ContentTable.Rows.Add(newRow);
+
+        //            } while (dr.Read());
+        //        }
+        //        dr.Close();
+
+        //        OledbConn.Close();
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        Console.WriteLine(ex.Message);
+        //        if (ContentTable != null)
+        //        {
+        //            ContentTable.Clear();
+        //            ContentTable.Dispose();
+        //        }
+        //        ContentTable = null;
+        //    }
+        //    return ContentTable;
+        //}
+
+        /// <summary>
+        /// We will not use this method as it required office interop. Method reads & returns comma separated worksheet names
+        /// </summary>
+        /// <param name="excelFilePath"></param>
+        /// <returns></returns>
+        //public string GetWorksheetsNames(string excelFilePath)
+        //{
+        //    Microsoft.Office.Interop.Excel.Application xlApp = new Microsoft.Office.Interop.Excel.Application();
+        //    Microsoft.Office.Interop.Excel.Workbook excelBook = xlApp.Workbooks.Open("D:\\Book1.xlsx");
+
+        //    string excelSheets = string.Empty;
+        //    int i = 0;
+        //    foreach (Microsoft.Office.Interop.Excel.Worksheet wSheet in excelBook.Worksheets)
+        //    {
+        //        excelSheets[i] = wSheet.Name;
+        //        i++;
+        //    }
+        //}
+
+        //public DataSet ReadExcel(string excelFilePath, string workSheetName)
+        //{
+        //    DataSet dsWorkbook = new DataSet();
+
+        //    string connectionString = string.Empty;
+
+        //    switch (Path.GetExtension(excelFilePath).ToUpperInvariant())
+        //    {
+        //        case ".XLS":
+        //            connectionString = string.Format("Provider=Microsoft.Jet.OLEDB.4.0; Data Source={0}; Extended Properties=Excel 8.0;", excelFilePath);
+        //            break;
+
+        //        case ".XLSX":
+        //            connectionString = string.Format("Provider=Microsoft.ACE.OLEDB.12.0;Data Source={0}; Extended Properties=Excel 12.0;", excelFilePath);
+        //            break;
+
+        //    }
+
+        //    if (!String.IsNullOrEmpty(connectionString))
+        //    {
+        //        //MyCommand = new System.Data.OleDb.OleDbDataAdapter("select * from [Sheet1$]", MyConnection);
+        //        string selectStatement = string.Format("SELECT * FROM [{0}$]", workSheetName);
+
+        //        using (OleDbDataAdapter adapter = new OleDbDataAdapter(selectStatement, connectionString))
+        //        {
+        //            adapter.Fill(dsWorkbook, workSheetName);
+        //        }
+        //    }
+
+        //    return dsWorkbook;
+        //}
+
+
         #endregion
     }
 }
