@@ -856,7 +856,7 @@ namespace DataAccessLayer
                 {
                     //means we need to get time interval data
                     datetimeToday = DateTime.Now;
-                    datetimeMaxTimestamp = System.Convert.ToDateTime(DateTime.Today.ToShortDateString() + " 09:15:00");
+                    datetimeMaxTimestamp = System.Convert.ToDateTime(DateTime.Today.ToShortDateString() + " 08:00:00");
                 }
                 else
                 {
@@ -893,7 +893,7 @@ namespace DataAccessLayer
                         if (compare < 0)
                         {
                             TimeSpan diffSpan = datetimeToday - datetimeMaxTimestamp;
-                            if (maxTimestamp == string.Empty)
+                            if (string.IsNullOrEmpty(maxTimestamp))
                             {
                                 range = GetRange(time_interval, outputsize);
                             }
@@ -903,16 +903,32 @@ namespace DataAccessLayer
                             }
                             else
                             {
-                                //if (Math.Round(diffSpan.TotalDays) > 0)
-                                //{
-                                //    range = Math.Round(diffSpan.TotalDays).ToString() + "d";
-                                //}
-                                //else
-                                //{
-                                //    //range = "1d";
-                                //    range = diffSpan.Minutes.ToString() + "m";
-                                //}
-                                range = "1d";
+                                if(diffSpan.Days == 0)
+                                {
+                                    //this means we are trying to get intra for a day
+                                    range = "1d";
+                                }
+                                else if (time_interval == "60m") 
+                                {
+                                    if(diffSpan.Days >= 730)
+                                        range = "2y";
+                                    else
+                                        range = diffSpan.Days.ToString() + "d";
+                                }
+                                else if (time_interval == "1m")
+                                {
+                                    if (diffSpan.Days > 7)
+                                        range = "7d";
+                                    else
+                                        range = diffSpan.Days.ToString() + "d";
+                                }
+                                else //if ((time_interval == "15m") || (time_interval == "30m") || (time_interval == "5m"))
+                                {
+                                        if (diffSpan.Days >= 60)
+                                        range = "60d";
+                                    else
+                                        range = diffSpan.Days.ToString() + "d";
+                                }
                             }
                             //we need to fetch data starting from lasttimestamp. We need to send converted script name with either .NS or .BO
                             StringBuilder sbStockData = FetchStockDataOnline(scriptname, range, time_interval, indicators, true);
@@ -1678,7 +1694,6 @@ namespace DataAccessLayer
             return breturn;
         }
 
-
         /// <summary>
         /// Method to fetch daily or minute wise data from DB
         /// It will call FetchOnlineAndSaveDailyStockData method to first check if we have latest data if not fetch online & insert the data in DB
@@ -1743,13 +1758,13 @@ namespace DataAccessLayer
                         if (fromDate != null)
                         {
                             //sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + System.Convert.ToDateTime(fromDate).ToString("yyyy-MM-dd hh:mm:ss") + "' ";
-                            sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + System.Convert.ToDateTime(fromDate).ToString("yyyy-MM-dd") + " 09:00:00' ";
+                            sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + System.Convert.ToDateTime(fromDate).ToString("yyyy-MM-dd") + " 08:00:00' ";
                         }
                         else
                         {
                             //we will limit the intra day data to 1 day
                             //sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + DateTime.Today.ToString("yyyy-MM-dd HH:mm:ss") + "' ";
-                            sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + DateTime.Today.ToString("yyyy-MM-dd") + " 09:00:00' ";
+                            sqlite_cmd.CommandText += " AND TIMESTAMP >= '" + DateTime.Today.ToString("yyyy-MM-dd") + " 08:00:00' ";
                         }
                         sqlite_cmd.CommandText += " AND TIMESTAMP <= '" + System.Convert.ToDateTime(fromDate).ToString("yyyy-MM-dd") + " 23:59:00' ";
                     }
@@ -2841,54 +2856,65 @@ namespace DataAccessLayer
         #endregion
 
         #region UTILITY_METHODS
+        /// <summary>
+        /// Valid intervals: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo]
+        /// valid range for each interval
+        /// [1m = 7d, 2m = 5m = 15m = 30m = 60d, 60m = 730d (or 2y), 90m = 60d, 1h = 730d (or 2y), 1d = 5d = 1wk = 1mo = 3mo = any range from ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]]
+        /// </summary>
+        /// <param name="time_interval"></param>
+        /// <param name="outputsize"></param>
+        /// <returns></returns>
         public string GetRange(string time_interval, string outputsize)
         {
             StringBuilder range = new StringBuilder();
             if (time_interval.Equals("1d"))
             {
-                if (outputsize.Equals("Compact"))
-                {
-                    range.Append("3mo");
-                }
-                else //if (outputsize.Equals("compact"))
-                {
-                    range.Append("10y");
-                }
+                //if (outputsize.Equals("Compact"))
+                //{
+                //    range.Append("3mo");
+                //}
+                //else //if (outputsize.Equals("compact"))
+                //{
+                //    range.Append("10y");
+                //}
+                range.Append("10y");
             }
             else if (time_interval == "60m")
             {
-                if (outputsize.Equals("Compact"))
-                {
-                    range.Append("1d");
-                }
-                else
-                {
-                    range.Append("2y");
-                }
+                //if (outputsize.Equals("Compact"))
+                //{
+                //    range.Append("1d");
+                //}
+                //else
+                //{
+                //    range.Append("2y");
+                //}
+                range.Append("2y");
 
             }
             else if (time_interval == "1m")
             {
-                if (outputsize.Equals("Compact"))
-                {
-                    range.Append("1d");
-                }
-                else
-                {
-                    range.Append("7d");
-                }
+                //if (outputsize.Equals("Compact"))
+                //{
+                //    range.Append("1d");
+                //}
+                //else
+                //{
+                //    range.Append("7d");
+                //}
+                range.Append("7d");
             }
             else //if ((time_interval == "15m") || (time_interval == "30m") || (time_interval == "5m"))
             {
-                if (outputsize.Equals("Compact"))
-                {
-                    range.Append("1d");
-                }
-                else
-                {
-                    range.Append("60d");
-                }
-
+                //if (outputsize.Equals("Compact"))
+                //{
+                //    range.Append("1d");
+                //}
+                //else
+                //{
+                //    range.Append("60d");
+                //}
+                range.Append("60d");
             }
 
             return range.ToString();
@@ -3894,7 +3920,7 @@ namespace DataAccessLayer
                                     }
                                     else
                                     {
-                                        dailyTable.Rows[dailyRowNum]["TIMESTAMP"] = System.Convert.ToDateTime(dailyTable.Rows[dailyRowNum]["TIMESTAMP"]).ToString("yyyy-MM-dd") + " 15:25:00";
+                                        dailyTable.Rows[dailyRowNum]["TIMESTAMP"] = System.Convert.ToDateTime(dailyTable.Rows[dailyRowNum]["TIMESTAMP"]).ToString("yyyy-MM-dd") + " 17:00:00";
                                     }
                                     dailyTable.Rows[dailyRowNum]["ID"] = portfolioTransactionTable.Rows[txnRowNum]["ID"].ToString(); //Portfolio query
                                     dailyTable.Rows[dailyRowNum]["MASTERID"] = portfolioTransactionTable.Rows[txnRowNum]["MASTERID"].ToString(); //Portfolio query
