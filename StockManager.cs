@@ -183,6 +183,269 @@ namespace DataAccessLayer
         }
 
         /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="scriptName"></param>
+        /// <param name="time_interval"></param>
+        /// <param name="outputsize"></param>
+        /// <returns>DataTable with following columns Symbol, Open, High, Low, Price, Volume, latestDay, previousClose, change, changePercent </returns>
+        public DataTable GetIntraWithPctChange(string scriptName, string time_interval = "5min", string outputsize = "full")
+        {
+            DataTable resultDataTable = null;
+            try
+            {
+                string webservice_url = "";
+                WebResponse wr;
+                Stream receiveStream = null;
+                StreamReader reader = null;
+                string record = "";
+                //string convertedScriptName;
+                string range, interval;
+
+                if (time_interval == "60min")
+                {
+                    interval = "60m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "2y";
+                    }
+
+                }
+                else if (time_interval == "1min")
+                {
+                    interval = "1m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "7d";
+                    }
+
+                }
+                else if (time_interval == "15min")
+                {
+                    interval = "15m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+                }
+                else if (time_interval == "30min")
+                {
+                    interval = "30m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+
+                }
+                else //if(time_interval == "60min")
+                {
+                    interval = "5m";
+                    if (outputsize.Equals("compact"))
+                    {
+                        range = "1d";
+                    }
+                    else
+                    {
+                        range = "60d";
+                    }
+                }
+
+                webservice_url = string.Format(urlGetStockData, scriptName, range, interval, indicators, includeTimestamps);
+
+                Uri url = new Uri(webservice_url);
+                var webRequest = WebRequest.Create(url);
+                webRequest.Method = "GET";
+                webRequest.ContentType = "application/json";
+                wr = webRequest.GetResponseAsync().Result;
+                receiveStream = wr.GetResponseStream();
+                reader = new StreamReader(receiveStream);
+
+                //returnDataTable = getQuoteTableFromJSON(reader.ReadToEnd(), scriptName);
+                record = reader.ReadToEnd();
+                reader.Close();
+                if (receiveStream != null)
+                    receiveStream.Close();
+
+                DateTime myDate;
+                double close;
+                double high;
+                double low;
+                double open;
+                int volume;
+                double change;
+                double changepercent;
+                double prevclose;
+                //double adjusetedClose = 0.00;
+                //string formatedDate;
+                var errors = new List<string>();
+
+                Root myDeserializedClass = JsonConvert.DeserializeObject<Root>(record, new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore,
+                    DefaultValueHandling = DefaultValueHandling.Populate,
+                    Error = delegate (object sender, Newtonsoft.Json.Serialization.ErrorEventArgs args)
+                    {
+                        errors.Add(args.ErrorContext.Error.Message);
+                        args.ErrorContext.Handled = true;
+                        //args.ErrorContext.Handled = false;
+                    }
+                    //Converters = { new IsoDateTimeConverter() }
+
+                });
+
+                Chart myChart = myDeserializedClass.chart;
+
+                Result myResult = myChart.result[0];
+
+                Meta myMeta = myResult.meta;
+
+                Indicators myIndicators = myResult.indicators;
+
+                //this will be typically only 1 row and quote will have list of close, high, low, open, volume
+                Quote myQuote = myIndicators.quote[0];
+
+                //this will be typically only 1 row and adjClose will have list of adjClose
+                //Adjclose myAdjClose = null;
+                //if (bIsDaily)
+                //{
+                //    myAdjClose = myIndicators.adjclose[0];
+                //}
+
+                if (myResult.timestamp != null)
+                {
+                    resultDataTable = new DataTable();
+
+                    resultDataTable.Columns.Add("Symbol", typeof(string));
+                    resultDataTable.Columns.Add("Open", typeof(decimal));
+                    resultDataTable.Columns.Add("High", typeof(decimal));
+                    resultDataTable.Columns.Add("Low", typeof(decimal));
+                    resultDataTable.Columns.Add("Price", typeof(decimal));
+                    resultDataTable.Columns.Add("Volume", typeof(int));
+                    resultDataTable.Columns.Add("LatestDay", typeof(DateTime));
+                    resultDataTable.Columns.Add("previousClose", typeof(decimal));
+                    resultDataTable.Columns.Add("change", typeof(decimal));
+                    resultDataTable.Columns.Add("changePercent", typeof(decimal));
+
+                    for (int i = 0; i < myResult.timestamp.Count; i++)
+                    {
+                        if ((myQuote.close[i] == null) && (myQuote.high[i] == null) && (myQuote.low[i] == null) && (myQuote.open[i] == null)
+                            && (myQuote.volume[i] == null))
+                        {
+                            continue;
+                        }
+
+                        //myDate = new DateTime(1970, 1, 1, 0, 0, 0, 0).AddSeconds(myResult.timestamp[i]).ToLocalTime();
+                        myDate = convertUnixEpochToLocalDateTime(myResult.timestamp[i], myMeta.timezone);
+
+                        //myDate = new DateTime(1970, 1, 1, 0, 0, 0, 0).AddSeconds(myResult.timestamp[i]);
+                        //string formatedDate = myDate.ToString("dd-MM-yyyy");
+                        //formatedDate = myDate.ToString("yyyy-dd-MM");
+
+                        //myDate = System.Convert.ToDateTime(myResult.timestamp[i]);
+
+                        //if all are null do not enter this row
+
+                        if (myQuote.close[i] == null)
+                        {
+                            close = 0.00;
+                        }
+                        else
+                        {
+                            //close = (double)myQuote.close[i];
+                            close = System.Convert.ToDouble(string.Format("{0:0.00}", myQuote.close[i]));
+                        }
+
+                        if (myQuote.high[i] == null)
+                        {
+                            high = 0.00;
+                        }
+                        else
+                        {
+                            //high = (double)myQuote.high[i];
+                            high = System.Convert.ToDouble(string.Format("{0:0.00}", myQuote.high[i]));
+                        }
+
+                        if (myQuote.low[i] == null)
+                        {
+                            low = 0.00;
+                        }
+                        else
+                        {
+                            //low = (double)myQuote.low[i];
+                            low = System.Convert.ToDouble(string.Format("{0:0.00}", myQuote.low[i]));
+                        }
+
+                        if (myQuote.open[i] == null)
+                        {
+                            open = 0.00;
+                        }
+                        else
+                        {
+                            //open = (double)myQuote.open[i];
+                            open = System.Convert.ToDouble(string.Format("{0:0.00}", myQuote.open[i]));
+                        }
+                        if (myQuote.volume[i] == null)
+                        {
+                            volume = 0;
+                        }
+                        else
+                        {
+                            volume = (int)myQuote.volume[i];
+                        }
+                        prevclose = System.Convert.ToDouble(string.Format("{0:0.00}", myMeta.chartPreviousClose));
+                        change = close - prevclose;
+                        changepercent = (change / prevclose) * 100;
+                        change = System.Convert.ToDouble(string.Format("{0:0.00}", change));
+                        changepercent = System.Convert.ToDouble(string.Format("{0:0.00}", changepercent));
+
+                        resultDataTable.Rows.Add(new object[] {
+                                                                    scriptName,
+                                                                    Math.Round(open, 4),
+                                                                    Math.Round(high, 4),
+                                                                    Math.Round(low, 4),
+                                                                    Math.Round(close, 4),
+                                                                    volume,
+                                                                    myDate,
+                                                                    Math.Round(prevclose, 4),
+                                                                    Math.Round(change, 4),
+                                                                    Math.Round(changepercent, 4)
+                                                                    //adjusetedClose
+                                                                });
+                    }
+                }
+
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                if (resultDataTable != null)
+                {
+                    resultDataTable.Clear();
+                    resultDataTable.Dispose();
+                }
+                resultDataTable = null;
+            }
+            return resultDataTable;
+        }
+
+        /// <summary>
         /// Method to fetch stock master data from NSE and then store in SQLite table
         /// The url returns comma separated recrods with first record is the field descriptor as shown below
         /// SYMBOL,NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE, MARKET LOT, ISIN NUMBER, FACE VALUE
@@ -315,7 +578,7 @@ namespace DataAccessLayer
         /// </summary>
         /// <param name="record">JSON string</param>
         /// <param name="symbol">Symbol for which we fetched the quote</param>
-        /// <returns>DataTable or null</returns>
+        /// <returns>DataTable with following columns Symbol, Open, High, Low, Price, Volume, latestDay, previousClose, change, changePercent </returns>
         public DataTable getQuoteTableFromJSON(string record, string symbol)
         {
             DataTable resultDataTable = null;
@@ -822,6 +1085,81 @@ namespace DataAccessLayer
             return returnData;
         }
 
+        /// <summary>
+        /// Method to fix bug in yahoo finance api where for index and intra day it returns volume = 0
+        /// if the last row inserted has volume = 0 then we will delete the same, so that it gets downloaded from yahoo everytime and we insert the data in db everytime
+        /// THis will happen till the next day
+        /// </summary>
+        /// <param name="scriptname"></param>
+        /// <param name="time_interval"></param>
+        /// <param name="sqlite_cmd"></param>
+        public int CheckLastRowForVolume(string scriptname, string time_interval = "1d", SQLiteCommand sqlite_cmd = null)
+        {
+            int numrowsaffected = 0;
+            SQLiteConnection sqlite_conn = null;
+            SQLiteDataReader sqlite_datareader = null;
+            SQLiteTransaction transaction = null;
+            long rowid;
+            double volume;
+            if (sqlite_cmd == null)
+            {
+                sqlite_conn = CreateConnection();
+                sqlite_cmd = sqlite_conn.CreateCommand();
+                transaction = sqlite_conn.BeginTransaction();
+            }
+
+
+            sqlite_cmd.CommandText = "SELECT max(timestamp) as MAXTIMESTAMP, ROWID, VOLUME FROM STOCKDATA WHERE SYMBOL = '" + scriptname + "' AND DATA_GRANULARITY = '" + time_interval + "'";
+            try
+            {
+                sqlite_datareader = sqlite_cmd.ExecuteReader();
+                //if (sqlite_datareader.HasRows)
+                if (sqlite_datareader.Read())
+                {
+                    //sqlite_datareader.Read();
+                    rowid = long.Parse( sqlite_datareader["ROWID"].ToString());
+                    volume = double.Parse(sqlite_datareader["VOLUME"].ToString());
+                    sqlite_datareader.Close();
+                    if(volume == 0)
+                    {
+                        //delete the row
+                        sqlite_cmd.CommandText = "DELETE FROM STOCKDATA WHERE ROWID = " + rowid;
+                        numrowsaffected = sqlite_cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (SQLiteException exSQL)
+            {
+                Console.WriteLine("CheckLastRowForVolume: " + exSQL.Message);
+            }
+            finally
+            {
+                if (sqlite_conn != null)
+                {
+                    if (transaction != null)
+                    {
+                        transaction.Commit();
+                        transaction.Dispose();
+                        transaction = null;
+                    }
+                    if (sqlite_datareader != null)
+                    {
+                        sqlite_datareader.Close();
+                    }
+
+                    if (sqlite_cmd != null)
+                    {
+                        sqlite_cmd.Dispose();
+                    }
+                    sqlite_datareader = null;
+                    sqlite_cmd = null;
+                    sqlite_conn.Close();
+                    sqlite_conn.Dispose();
+                    sqlite_conn = null;
+                }
+            }
+            return numrowsaffected;
+        }
 
         /// <summary>
         /// Method to download & save stock price - open, high, low, close, volume
@@ -871,6 +1209,9 @@ namespace DataAccessLayer
                     sqlite_cmd = sqlite_conn.CreateCommand();
                     transaction = sqlite_conn.BeginTransaction();
                 }
+
+                int numrecordsdelete = CheckLastRowForVolume(scriptname, time_interval, sqlite_cmd);
+
                 sqlite_cmd.CommandText = "SELECT max(timestamp) as MAXTIMESTAMP FROM STOCKDATA WHERE SYMBOL = '" + scriptname + "' AND DATA_GRANULARITY = '" + time_interval + "'";
                 try
                 {
@@ -903,14 +1244,14 @@ namespace DataAccessLayer
                             }
                             else
                             {
-                                if(diffSpan.Days == 0)
+                                if (diffSpan.Days == 0)
                                 {
                                     //this means we are trying to get intra for a day
                                     range = "1d";
                                 }
-                                else if (time_interval == "60m") 
+                                else if (time_interval == "60m")
                                 {
-                                    if(diffSpan.Days >= 730)
+                                    if (diffSpan.Days >= 730)
                                         range = "2y";
                                     else
                                         range = diffSpan.Days.ToString() + "d";
@@ -924,7 +1265,7 @@ namespace DataAccessLayer
                                 }
                                 else //if ((time_interval == "15m") || (time_interval == "30m") || (time_interval == "5m"))
                                 {
-                                        if (diffSpan.Days >= 60)
+                                    if (diffSpan.Days >= 60)
                                         range = "60d";
                                     else
                                         range = diffSpan.Days.ToString() + "d";
@@ -4552,7 +4893,7 @@ namespace DataAccessLayer
             catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
-                if(dt != null)
+                if (dt != null)
                 {
                     dt.Clear();
                     dt.Dispose();
