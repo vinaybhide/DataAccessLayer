@@ -1116,15 +1116,18 @@ namespace DataAccessLayer
                 //if (sqlite_datareader.HasRows)
                 if (sqlite_datareader.Read())
                 {
-                    //sqlite_datareader.Read();
-                    rowid = long.Parse( sqlite_datareader["ROWID"].ToString());
-                    volume = double.Parse(sqlite_datareader["VOLUME"].ToString());
-                    sqlite_datareader.Close();
-                    if(volume == 0)
-                    {
-                        //delete the row
-                        sqlite_cmd.CommandText = "DELETE FROM STOCKDATA WHERE ROWID = " + rowid;
-                        numrowsaffected = sqlite_cmd.ExecuteNonQuery();
+                    if ((string.IsNullOrEmpty(sqlite_datareader["ROWID"].ToString()) == false) && (string.IsNullOrEmpty(sqlite_datareader["VOLUME"].ToString()) == false) &&
+                            (string.IsNullOrEmpty(sqlite_datareader["MAXTIMESTAMP"].ToString()) == false))
+                    {//sqlite_datareader.Read();
+                        rowid = long.Parse(sqlite_datareader["ROWID"].ToString());
+                        volume = double.Parse(sqlite_datareader["VOLUME"].ToString());
+                        sqlite_datareader.Close();
+                        if (volume == 0)
+                        {
+                            //delete the row
+                            sqlite_cmd.CommandText = "DELETE FROM STOCKDATA WHERE ROWID = " + rowid;
+                            numrowsaffected = sqlite_cmd.ExecuteNonQuery();
+                        }
                     }
                 }
             }
@@ -1134,6 +1137,14 @@ namespace DataAccessLayer
             }
             finally
             {
+                if (sqlite_datareader != null)
+                {
+                    if (sqlite_datareader.IsClosed == false)
+                    {
+                        sqlite_datareader.Close();
+                    }
+                }
+
                 if (sqlite_conn != null)
                 {
                     if (transaction != null)
@@ -1142,11 +1153,6 @@ namespace DataAccessLayer
                         transaction.Dispose();
                         transaction = null;
                     }
-                    if (sqlite_datareader != null)
-                    {
-                        sqlite_datareader.Close();
-                    }
-
                     if (sqlite_cmd != null)
                     {
                         sqlite_cmd.Dispose();
@@ -1247,6 +1253,7 @@ namespace DataAccessLayer
                                 if (diffSpan.Days == 0)
                                 {
                                     //this means we are trying to get intra for a day
+                                    //range = diffSpan.Hours + "h";
                                     range = "1d";
                                 }
                                 else if (time_interval == "60m")
@@ -1254,21 +1261,30 @@ namespace DataAccessLayer
                                     if (diffSpan.Days >= 730)
                                         range = "2y";
                                     else
-                                        range = diffSpan.Days.ToString() + "d";
+                                    {
+                                        //range = diffSpan.Days.ToString() + "d";
+                                        range = Math.Round(diffSpan.TotalDays, MidpointRounding.AwayFromZero).ToString() + "d";
+                                    }
                                 }
                                 else if (time_interval == "1m")
                                 {
                                     if (diffSpan.Days > 7)
                                         range = "7d";
                                     else
-                                        range = diffSpan.Days.ToString() + "d";
+                                    {
+                                        //range = diffSpan.Days.ToString() + "d";
+                                        range = Math.Round(diffSpan.TotalDays, MidpointRounding.AwayFromZero).ToString() + "d";
+                                    }
                                 }
                                 else //if ((time_interval == "15m") || (time_interval == "30m") || (time_interval == "5m"))
                                 {
                                     if (diffSpan.Days >= 60)
                                         range = "60d";
                                     else
-                                        range = diffSpan.Days.ToString() + "d";
+                                    {
+                                        //range = diffSpan.Days.ToString() + "d";
+                                        range = Math.Round(diffSpan.TotalDays, MidpointRounding.AwayFromZero).ToString() + "d";
+                                    }
                                 }
                             }
                             //we need to fetch data starting from lasttimestamp. We need to send converted script name with either .NS or .BO
@@ -1286,6 +1302,15 @@ namespace DataAccessLayer
                 }
                 finally
                 {
+                    if (sqlite_datareader != null)
+                    {
+                        if (sqlite_datareader.IsClosed == false)
+                        {
+                            sqlite_datareader.Close();
+                        }
+                        sqlite_datareader = null;
+                    }
+
                     if (sqlite_conn != null)
                     {
                         if (transaction != null)
@@ -1294,16 +1319,11 @@ namespace DataAccessLayer
                             transaction.Dispose();
                             transaction = null;
                         }
-                        if (sqlite_datareader != null)
-                        {
-                            sqlite_datareader.Close();
-                        }
 
                         if (sqlite_cmd != null)
                         {
                             sqlite_cmd.Dispose();
                         }
-                        sqlite_datareader = null;
                         sqlite_cmd = null;
                         sqlite_conn.Close();
                         sqlite_conn.Dispose();
@@ -1857,6 +1877,9 @@ namespace DataAccessLayer
             double open;
             long volume;
             double adjusetedClose = 0.00;
+            double prevclose = 0.00;
+            double change = 0.00;
+            double changepercent = 0.00;
             string insertDtTm;
 
 
@@ -1908,6 +1931,8 @@ namespace DataAccessLayer
                     }
                     try
                     {
+                        prevclose = System.Convert.ToDouble(string.Format("{0:0.00}", myMeta.chartPreviousClose));
+
                         for (int i = 0; i < myResult.timestamp.Count; i++)
                         {
                             if ((myQuote.close[i] == null) && (myQuote.high[i] == null) && (myQuote.low[i] == null) && (myQuote.open[i] == null)
@@ -1975,8 +2000,14 @@ namespace DataAccessLayer
                                 adjusetedClose = System.Convert.ToDouble(string.Format("{0:0.00}", myAdjClose.adjclose[i]));
                             }
 
-                            sqlite_cmd.CommandText = "INSERT OR IGNORE INTO  STOCKDATA(SYMBOL, EXCHANGENAME, TYPE, DATA_GRANULARITY, OPEN, HIGH, LOW, CLOSE, ADJ_CLOSE, VOLUME, TIMESTAMP) " +
-                           "VALUES (@SYMBOL, @EXCHANGENAME, @TYPE, @DATA_GRANULARITY, @OPEN, @HIGH, @LOW, @CLOSE, @ADJ_CLOSE, @VOLUME, @TIMESTAMP) ";
+                            change = close - prevclose;
+                            changepercent = (change / prevclose) * 100;
+                            change = System.Convert.ToDouble(string.Format("{0:0.00}", change));
+                            changepercent = System.Convert.ToDouble(string.Format("{0:0.00}", changepercent));
+
+
+                            sqlite_cmd.CommandText = "INSERT OR IGNORE INTO STOCKDATA(SYMBOL, EXCHANGENAME, TYPE, DATA_GRANULARITY, OPEN, HIGH, LOW, CLOSE, ADJ_CLOSE, VOLUME, PREV_CLOSE, CHANGE, CHANGE_PCT, TIMESTAMP) " +
+                           "VALUES (@SYMBOL, @EXCHANGENAME, @TYPE, @DATA_GRANULARITY, @OPEN, @HIGH, @LOW, @CLOSE, @ADJ_CLOSE, @VOLUME, @PREV_CLOSE, @CHANGE, @CHANGE_PCT, @TIMESTAMP) ";
                             //"ON CONFLICT DO NOTHING";
 
                             sqlite_cmd.Prepare();
@@ -1990,6 +2021,10 @@ namespace DataAccessLayer
                             sqlite_cmd.Parameters.AddWithValue("@CLOSE", close);
                             sqlite_cmd.Parameters.AddWithValue("@ADJ_CLOSE", adjusetedClose);
                             sqlite_cmd.Parameters.AddWithValue("@VOLUME", volume);
+
+                            sqlite_cmd.Parameters.AddWithValue("@PREV_CLOSE", prevclose);
+                            sqlite_cmd.Parameters.AddWithValue("@CHANGE", change);
+                            sqlite_cmd.Parameters.AddWithValue("@CHANGE_PCT", changepercent);
 
                             insertDtTm = (time_interval.Contains("d") ? myDate.ToString("yyyy-MM-dd") : myDate.ToString("yyyy-MM-dd HH:mm:ss"));
 
@@ -2079,7 +2114,7 @@ namespace DataAccessLayer
                 {
                     FetchOnlineAndSaveDailyStockData(symbol, exchangename, outputsize: outputsize, time_interval: time_interval, sqlite_cmd: sqlite_cmd);
 
-                    sqlite_cmd.CommandText = "SELECT ROWID as DAILYID, SYMBOL, EXCHANGENAME as EXCHANGE, TYPE, DATA_GRANULARITY, OPEN, HIGH, LOW, CLOSE, ADJ_CLOSE, VOLUME, ";
+                    sqlite_cmd.CommandText = "SELECT ROWID as DAILYID, SYMBOL, EXCHANGENAME as EXCHANGE, TYPE, DATA_GRANULARITY, OPEN, HIGH, LOW, CLOSE, ADJ_CLOSE, VOLUME, PREV_CLOSE, CHANGE, CHANGE_PCT, ";
                     if (time_interval.Contains("d"))
                     {
                         //"strftime(\"%Y-%m-%d\", TIMESTAMP) as TIMESTAMP " +
@@ -2129,6 +2164,9 @@ namespace DataAccessLayer
                     returnTable.Columns.Add("CLOSE", typeof(decimal));
                     returnTable.Columns.Add("ADJ_CLOSE", typeof(decimal));
                     returnTable.Columns.Add("VOLUME", typeof(decimal));
+                    returnTable.Columns.Add("PREV_CLOSE", typeof(decimal));
+                    returnTable.Columns.Add("CHANGE", typeof(decimal));
+                    returnTable.Columns.Add("CHANGE_PCT", typeof(decimal));
                     returnTable.Columns.Add("TIMESTAMP", typeof(DateTime));
 
                     returnTable.Load(sqlite_datareader);
@@ -5090,5 +5128,8 @@ namespace DataAccessLayer
 
 
         #endregion
+
+        #region export CSV
+        #endregion export CSV
     }
 }
